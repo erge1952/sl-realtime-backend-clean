@@ -1,51 +1,139 @@
+// server.js
 import express from "express";
 import cors from "cors";
 import fetch from "node-fetch";
 import protobuf from "protobufjs";
+import { parse } from "csv-parse/sync";
 
-// ---- Express ----
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ---- PORT ----
 const PORT = process.env.PORT || 3000;
 
-// ---- SL API ----
+// ----- SL API Key -----
 const SL_API_KEY = process.env.SL_API_KEY;
-if (!SL_API_KEY) console.warn("⚠️ SL_API_KEY saknas");
+if (!SL_API_KEY) console.warn("⚠️ SL_API_KEY saknas!");
 
+// ----- GTFS-RT URL -----
 const GTFS_RT_URL = `https://opendata.samtrafiken.se/gtfs-rt/sl/VehiclePositions.pb?key=${SL_API_KEY}`;
 
-// ---- Load proto ----
-let FeedMessage = null;
-async function loadProto() {
-  const root = await protobuf.load("gtfs-realtime.proto");
-  FeedMessage = root.lookupType("transit_realtime.FeedMessage");
-  console.log("✅ GTFS-RT proto laddad");
-}
-await loadProto();
+// ----- Publika GTFS JSON filer -----
+const GTFS_BASE = "https://gerring.com/gtfs/";
 
-// ---- Cache ----
+// ----- Load CSV via HTTP -----
+async function loadCSV(url, columns) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status} för ${url}`);
+  const text = await res.text();
+  return parse(text, { columns, skip_empty_lines: true, trim: true });
+}
+
+// ----- Initiera GTFS-data -----
+let routes, trips, shapes, stops, stopTimes;
+async function initGTFS() {
+  console.log("🔄 Hämtar GTFS-data...");
+  routes = await loadCSV(`${GTFS_BASE}routes.json`, ['route_id','agency_id','route_short_name','route_long_name','route_type','route_desc']);
+  trips = await loadCSV(`${GTFS_BASE}trips.json`, ['route_id','service_id','trip_id','trip_headsign','direction_id','shape_id']);
+  shapes = await loadCSV(`${GTFS_BASE}shapes.json`, ['shape_id','shape_pt_lat','shape_pt_lon','shape_pt_sequence','shape_dist_traveled']);
+  stops = await loadCSV(`${GTFS_BASE}stops.json`, ['stop_id','stop_name','stop_lat','stop_lon','location_type','parent_station','platform_code']);
+  stopTimes = await loadCSV(`${GTFS_BASE}stop_times.json`, [
+    'trip_id','arrival_time','departure_time','stop_id','stop_sequence','stop_headsign',
+    'pickup_type','drop_off_type','shape_dist_traveled','timepoint',
+    'pickup_booking_rule_id','drop_off_booking_rule_id'
+  ]);
+
+  // Index för snabb lookup
+  tripsByRouteId.clear();
+  for (const t of trips) {
+    if (!tripsByRouteId.has(t.route_id)) tripsByRouteId.set(t.route_id, []);
+    tripsByRouteId.get(t.route_id).push(t);
+  }
+
+  stopTimesByTripId.clear();
+  for (const st of stopTimes) {
+    if (!stopTimesByTripId.has(st.trip_id)) stopTimesByTripId.set(st.trip_id, []);
+    stopTimesByTripId.get(st.trip_id).push(st);
+  }
+
+  console.log("✅ GTFS-data klar");
+}
+
+// ----- Index för snabb lookup -----
+const tripsByRouteId = new Map();
+const stopTimesByTripId = new Map();
+
+// ----- GTFS-RT cache -----
 let cachedFeed = null;
 let cachedAt = 0;
 const CACHE_TTL = 5000;
 
-// ---- Health check ----
-app.get("/", (req, res) => {
-  res.send("SL Realtime Backend OK 🚍");
+// ----- Ladda GTFS-RT proto -----
+let FeedMessage;
+(async () => {
+  const root = await protobuf.load("gtfs-realtime.proto");
+  FeedMessage = root.lookupType("transit_realtime.FeedMessage");
+  console.log("✅ GTFS-RT proto laddad");
+})();
+
+// ----- Route: linje + hållplatser -----
+app.get("/api/line/:line", async (req, res) => {
+  try {
+    if (!routes) await initGTFS();
+
+    const line = req.params.line.trim();
+    const route = routes.find(r => r.route_short_name === line);
+    if (!route) return res.status(404).json({ error: "Ingen linje" });
+
+    const tripsForLine = tripsByRouteId.get(route.route_id);
+    if (!tripsForLine?.length) return res.status(404).json({ error: "Ingen trip för linjen" });
+
+    const shapeId = tripsForLine[0].shape_id;
+
+    const shape = shapes
+      .filter(s => s.shape_id === shapeId)
+      .sort((a,b)=>Number(a.shape_pt_sequence)-Number(b.shape_pt_sequence))
+      .map(s => [Number(s.shape_pt_lat), Number(s.shape_pt_lon)]);
+
+    const stopsOut = [];
+    const seenStops = new Set();
+
+    for (const trip of tripsForLine) {
+      for (const st of stopTimesByTripId.get(trip.trip_id) || []) {
+        if (seenStops.has(st.stop_id)) continue;
+        seenStops.add(st.stop_id);
+
+        const stop = stops.find(s => s.stop_id === st.stop_id);
+        if (stop) stopsOut.push({
+          lat: Number(stop.stop_lat),
+          lon: Number(stop.stop_lon),
+          name: stop.stop_name
+        });
+      }
+    }
+
+    res.json({ shape, stops: stopsOut });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Kunde inte hämta rutt/hållplatser", details: e.message });
+  }
 });
 
-// ---- Test route ----
-app.get("/api/test", (req, res) => {
-  res.json({ ok: true, msg: "Backend fungerar på Render!" });
-});
-
-// ---- Vehicles per line ----
+// ----- Route: live bussar per linje -----
 app.get("/api/vehicles/:line", async (req, res) => {
   try {
-    if (!FeedMessage) return res.status(503).json({ error: "Proto inte redo" });
+    if (!routes) await initGTFS();
 
+    const line = req.params.line.trim();
+    const route = routes.find(r => r.route_short_name === line);
+    if (!route) return res.json([]);
+
+    const tripsForLine = tripsByRouteId.get(route.route_id);
+    if (!tripsForLine?.length) return res.json([]);
+
+    const tripIdsForLine = tripsForLine.map(t=>t.trip_id);
+
+    // ----- Hämta GTFS-RT -----
     const now = Date.now();
     if (!cachedFeed || now - cachedAt > CACHE_TTL) {
       const r = await fetch(GTFS_RT_URL, {
@@ -57,46 +145,28 @@ app.get("/api/vehicles/:line", async (req, res) => {
       cachedAt = now;
     }
 
-    const line = req.params.line;
     const vehicles = cachedFeed.entity
-      .filter(e => e.vehicle?.position && e.vehicle.trip?.routeId === line)
+      .filter(e => e.vehicle?.position && tripIdsForLine.includes(e.vehicle.trip?.tripId))
       .map(e => ({
         id: e.vehicle.vehicle?.id || e.id,
         lat: e.vehicle.position.latitude,
         lon: e.vehicle.position.longitude,
-        bearing: e.vehicle.position.bearing ?? 0
-      }));
-
-    res.json(vehicles);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "GTFS-RT error", details: err.message });
-  }
-});
-
-// ---- Test: GTFS-RT ----
-app.get("/api/test/vehicles", async (req, res) => {
-  try {
-    if (!FeedMessage) return res.status(503).json({ error: "Proto inte redo" });
-
-    const r = await fetch(GTFS_RT_URL, { headers: { Accept: "application/x-protobuf" } });
-    const buffer = await r.arrayBuffer();
-    const feed = FeedMessage.decode(new Uint8Array(buffer));
-
-    const vehicles = feed.entity
-      .filter(e => e.vehicle?.position)
-      .slice(0, 10)
-      .map(e => ({
-        lat: e.vehicle.position.latitude,
-        lon: e.vehicle.position.longitude,
-        tripId: e.vehicle.trip?.tripId
+        bearing: e.vehicle.position.bearing ?? 0,
+        directionId: e.vehicle.trip?.directionId
       }));
 
     res.json(vehicles);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    console.error(e);
+    res.status(500).json({ error: "Kunde inte hämta live-bussar", details: e.message });
   }
 });
 
-// ---- Start server ----
-app.listen(PORT, () => console.log(`🚍 Backend kör på port ${PORT}`));
+// ----- Test -----
+app.get("/api/test", (req,res) => res.json({ ok:true, msg:"Backend fungerar på Render!" }));
+
+// ----- Health check -----
+app.get("/", (req,res) => res.send("SL Realtime Backend OK 🚍"));
+
+// ----- Start server -----
+app.listen(PORT, ()=>console.log(`🚍 Backend kör på port ${PORT}`));

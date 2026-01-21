@@ -73,6 +73,35 @@ app.get("/", (req, res) => {
   res.send("SL Realtime Backend OK 🚍");
 });
 
+
+// ----- TEST: fungerar GTFS-RT på Render? -----
+app.get("/api/test/vehicles", async (req, res) => {
+    try {
+      const r = await fetch(GTFS_RT_URL, {
+        headers: {
+          Accept: "application/x-protobuf",
+          "User-Agent": "SL-Test"
+        }
+      });
+  
+      const buffer = await r.arrayBuffer();
+      const feed = FeedMessage.decode(new Uint8Array(buffer));
+  
+      const vehicles = feed.entity
+        .filter(e => e.vehicle?.position)
+        .slice(0, 10)
+        .map(e => ({
+          lat: e.vehicle.position.latitude,
+          lon: e.vehicle.position.longitude,
+          tripId: e.vehicle.trip?.tripId
+        }));
+  
+      res.json(vehicles);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
 app.listen(PORT, () =>
   console.log(`🚍 Backend kör på port ${PORT}`)
 );

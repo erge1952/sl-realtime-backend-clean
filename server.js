@@ -12,7 +12,7 @@ const PORT = process.env.PORT || 3000;
 
 const SL_API_KEY = process.env.SL_API_KEY;
 const GTFS_RT_URL = `https://opendata.samtrafiken.se/gtfs-rt/sl/VehiclePositions.pb?key=${SL_API_KEY}`;
-const GTFS_BASE = "https://gerring.com/gtfs/";
+const GTFS_BASE = "https://gerring.com/gtfs-mini/";
 
 // ----- GTFS-RT proto -----
 let FeedMessage;

@@ -149,23 +149,40 @@ app.get("/api/vehicles/:line", async (req, res) => {
       cachedAt = now;
     }
 
-    const vehicles = cachedFeed.entity
-    .filter(e => e.vehicle?.position && tripIdsForLine.includes(e.vehicle.trip?.tripId))
-    .map(e => {
-      const tripId = e.vehicle.trip?.tripId;
-      // Hämta trip från den redan laddade GTFS för linjen
-      const trip = data.tripsForLine.find(t => t.trip_id === tripId);
-  
-      return {
-        id: e.vehicle.vehicle?.id || e.id,
-        lat: e.vehicle.position.latitude,
-        lon: e.vehicle.position.longitude,
-        bearing: e.vehicle.position.bearing ?? 0,
-        directionId: e.vehicle.trip?.directionId ?? null,
-        destination: trip?.trip_headsign || "Okänd destination"
-      };
-    });
-  
+
+
+    // Bygg index för sista hållplats
+const stopsAllById = new Map();
+for (const s of (data?.stopsAll || [])) stopsAllById.set(s.stop_id, s);
+
+const lastStopNameByTripId = new Map();
+for (const [tripId, sts] of (data?.stopTimesByTripId || [])) {
+  const last = sts.reduce((a,b) =>
+    Number(a.stop_sequence) > Number(b.stop_sequence) ? a : b
+  );
+  const stop = stopsAllById.get(last.stop_id);
+  if (stop) lastStopNameByTripId.set(tripId, stop.stop_name);
+}
+
+const vehicles = cachedFeed.entity
+  .filter(e => e.vehicle?.position && tripIdsForLine.includes(e.vehicle.trip?.tripId))
+  .map(e => {
+    const tripId = e.vehicle.trip?.tripId;
+    const trip = data.tripsForLine.find(t => t.trip_id === tripId);
+
+    return {
+      id: e.vehicle.vehicle?.id || e.id,
+      lat: e.vehicle.position.latitude,
+      lon: e.vehicle.position.longitude,
+      bearing: e.vehicle.position.bearing ?? 0,
+      directionId: e.vehicle.trip?.directionId ?? null,
+      destination:
+        trip?.trip_headsign ||
+        lastStopNameByTripId.get(tripId) ||
+        "Okänd destination"
+    };
+  });
+
 
     res.json(vehicles);
 

@@ -145,16 +145,21 @@ app.get("/api/vehicles/:line", async (req, res) => {
     }
 
     const vehicles = cachedFeed.entity
-      .filter(e => e.vehicle?.position && tripIdsForLine.includes(e.vehicle.trip?.tripId))
-      .map(e => ({
+    .filter(e => e.vehicle?.position && tripIdsForLine.includes(e.vehicle.trip?.tripId))
+    .map(e => {
+      const tripId = e.vehicle.trip?.tripId;
+      const trip = tripsForLine.find(t => t.trip_id === tripId);
+  
+      return {
         id: e.vehicle.vehicle?.id || e.id,
         lat: e.vehicle.position.latitude,
         lon: e.vehicle.position.longitude,
         bearing: e.vehicle.position.bearing ?? 0,
-        directionId: e.vehicle.trip?.directionId,
+        directionId: e.vehicle.trip?.directionId ?? null,
         destination: trip?.trip_headsign || "Okänd destination"
-      }));
-
+      };
+    });
+  
     res.json(vehicles);
 
   } catch (e) {

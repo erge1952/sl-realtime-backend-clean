@@ -1,4 +1,5 @@
 // server.js
+
 import express from "express";
 import cors from "cors";
 import fetch from "node-fetch";
@@ -14,7 +15,7 @@ const SL_API_KEY = process.env.SL_API_KEY;
 if (!SL_API_KEY) console.warn("⚠️ SL_API_KEY är inte satt!");
 
 const GTFS_RT_URL = `https://opendata.samtrafiken.se/gtfs-rt/sl/VehiclePositions.pb?key=${SL_API_KEY}`;
-const GTFS_BASE = "https://gerring.com/gtfs-mini/";
+const GTFS_BASE = "https://gerring.com/gtfs/"; // ✅ Alla linjer
 
 // ----- GTFS-RT proto -----
 let FeedMessage;
@@ -29,10 +30,6 @@ let cachedFeed = null;
 let cachedAt = 0;
 const CACHE_TTL = 5000;
 
-// ----- Per-linje cache för mini-GTFS -----
-const gtfsCache = new Map(); // key: line, value: { data, timestamp }
-const LINE_CACHE_TTL = 10 * 60 * 1000; // 10 minuter
-
 // ----- Hjälpfunktioner -----
 async function loadCSVfromURL(url, columns) {
   const r = await fetch(url);
@@ -41,66 +38,71 @@ async function loadCSVfromURL(url, columns) {
   return parse(text, { columns, skip_empty_lines: true, trim: true });
 }
 
-async function loadGTFSforLine(line) {
-  // Kolla cache
-  const cached = gtfsCache.get(line);
-  if (cached && Date.now() - cached.timestamp < LINE_CACHE_TTL) return cached.data;
+// ----- Ladda alla GTFS-data -----
+let allGTFS = null;
 
-  // Ladda routes
-  const routes = await loadCSVfromURL(`${GTFS_BASE}routes.json`, [
-    "route_id", "agency_id", "route_short_name", "route_long_name", "route_type", "route_desc"
-  ]);
-  const route = routes.find(r => r.route_short_name === line);
-  if (!route) return null;
+async function loadAllGTFS() {
+  if (allGTFS) return allGTFS; // cache
 
-  const route_id = route.route_id;
-
-  // Ladda trips för linjen
-  const trips = await loadCSVfromURL(`${GTFS_BASE}trips.json`, [
-    "route_id", "service_id", "trip_id", "trip_headsign", "direction_id", "shape_id"
-  ]);
-  const tripsForLine = trips.filter(t => t.route_id === route_id);
-  if (!tripsForLine.length) return { route };
-
-  // Ladda shapes och stops
-  const shapes = await loadCSVfromURL(`${GTFS_BASE}shapes.json`, [
-    "shape_id", "shape_pt_lat", "shape_pt_lon", "shape_pt_sequence", "shape_dist_traveled"
-  ]);
-  const stopsAll = await loadCSVfromURL(`${GTFS_BASE}stops.json`, [
-    "stop_id", "stop_name", "stop_lat", "stop_lon", "location_type", "parent_station", "platform_code"
-  ]);
-  const stopTimesAll = await loadCSVfromURL(`${GTFS_BASE}stop_times.json`, [
-    "trip_id","arrival_time","departure_time","stop_id","stop_sequence","stop_headsign",
-    "pickup_type","drop_off_type","shape_dist_traveled","timepoint",
-    "pickup_booking_rule_id","drop_off_booking_rule_id"
+  const [routes, trips, shapes, stops, stopTimes] = await Promise.all([
+    loadCSVfromURL(`${GTFS_BASE}routes.json`, ["route_id","agency_id","route_short_name","route_long_name","route_type","route_desc"]),
+    loadCSVfromURL(`${GTFS_BASE}trips.json`, ["route_id","service_id","trip_id","trip_headsign","direction_id","shape_id"]),
+    loadCSVfromURL(`${GTFS_BASE}shapes.json`, ["shape_id","shape_pt_lat","shape_pt_lon","shape_pt_sequence","shape_dist_traveled"]),
+    loadCSVfromURL(`${GTFS_BASE}stops.json`, ["stop_id","stop_name","stop_lat","stop_lon","location_type","parent_station","platform_code"]),
+    loadCSVfromURL(`${GTFS_BASE}stop_times.json`, [
+      "trip_id","arrival_time","departure_time","stop_id","stop_sequence","stop_headsign",
+      "pickup_type","drop_off_type","shape_dist_traveled","timepoint",
+      "pickup_booking_rule_id","drop_off_booking_rule_id"
+    ])
   ]);
 
-  // Indexera stop_times per trip_id
+  // Indexering
+  const tripsByRouteId = new Map();
+  const tripsById = new Map();
   const stopTimesByTripId = new Map();
-  for (const st of stopTimesAll) {
+  const stopsById = new Map();
+
+  for (const s of stops) stopsById.set(s.stop_id, s);
+
+  for (const t of trips) {
+    tripsById.set(t.trip_id, t);
+    if (!tripsByRouteId.has(t.route_id)) tripsByRouteId.set(t.route_id, []);
+    tripsByRouteId.get(t.route_id).push(t);
+  }
+
+  for (const st of stopTimes) {
     if (!stopTimesByTripId.has(st.trip_id)) stopTimesByTripId.set(st.trip_id, []);
     stopTimesByTripId.get(st.trip_id).push(st);
   }
 
-  const data = { route, tripsForLine, shapes, stopsAll, stopTimesByTripId };
-  gtfsCache.set(line, { data, timestamp: Date.now() });
-  return data;
+  // Slutstation per trip
+  const lastStopNameByTripId = new Map();
+  for (const [tripId, sts] of stopTimesByTripId) {
+    const last = sts.reduce((a,b) => Number(a.stop_sequence) > Number(b.stop_sequence) ? a : b);
+    const stop = stopsById.get(last.stop_id);
+    if (stop) lastStopNameByTripId.set(tripId, stop.stop_name);
+  }
+
+  allGTFS = { routes, trips, shapes, stops, stopTimes, tripsByRouteId, tripsById, stopTimesByTripId, stopsById, lastStopNameByTripId };
+  return allGTFS;
 }
 
 // ----- Route: linje + hållplatser -----
-app.get("/api/line/:line", async (req, res) => {
+app.get("/api/line/:line", async (req,res) => {
   try {
     const line = req.params.line.trim();
-    const data = await loadGTFSforLine(line);
-    if (!data) return res.status(404).json({ error: "Ingen linje" });
+    const { routes, tripsByRouteId, shapes, stopsById, stopTimesByTripId } = await loadAllGTFS();
 
-    const { tripsForLine, shapes, stopsAll, stopTimesByTripId } = data;
+    const route = routes.find(r => r.route_short_name === line);
+    if (!route) return res.status(404).json({ error: "Ingen linje" });
+
+    const tripsForLine = tripsByRouteId.get(route.route_id);
     if (!tripsForLine?.length) return res.status(404).json({ error: "Ingen trip för linjen" });
 
     const shapeId = tripsForLine[0].shape_id;
     const shape = shapes
       .filter(s => s.shape_id === shapeId)
-      .sort((a, b) => Number(a.shape_pt_sequence) - Number(b.shape_pt_sequence))
+      .sort((a,b) => Number(a.shape_pt_sequence) - Number(b.shape_pt_sequence))
       .map(s => [Number(s.shape_pt_lat), Number(s.shape_pt_lon)]);
 
     const stopsOut = [];
@@ -109,35 +111,27 @@ app.get("/api/line/:line", async (req, res) => {
       for (const st of stopTimesByTripId.get(trip.trip_id) || []) {
         if (seenStops.has(st.stop_id)) continue;
         seenStops.add(st.stop_id);
-        const stop = stopsAll.find(s => s.stop_id === st.stop_id);
-        if (stop) stopsOut.push({
-          lat: Number(stop.stop_lat),
-          lon: Number(stop.stop_lon),
-          name: stop.stop_name
-        });
+        const stop = stopsById.get(st.stop_id);
+        if (stop) stopsOut.push({ lat: Number(stop.stop_lat), lon: Number(stop.stop_lon), name: stop.stop_name });
       }
     }
 
     res.json({ shape, stops: stopsOut });
 
-  } catch (e) {
-    console.error("GTFS ERROR:", e);
-    res.status(500).json({ error: "Kunde inte hämta rutt/hållplatser", details: e.message });
+  } catch (err) {
+    console.error("GTFS ERROR:", err);
+    res.status(500).json({ error: "Kunde inte hämta rutt/hållplatser", details: err.message });
   }
 });
 
 // ----- Route: live bussar -----
-app.get("/api/vehicles/:line", async (req, res) => {
+app.get("/api/vehicles/:line", async (req,res) => {
   try {
     const line = req.params.line.trim();
-    const data = await loadGTFSforLine(line);
-    if (!data || !data.tripsForLine?.length) return res.json([]);
+    const { tripsByRouteId, tripsById, lastStopNameByTripId } = await loadAllGTFS();
 
-    const tripIdsForLine = data.tripsForLine.map(t => t.trip_id);
-
-    // ----- Snabb lookup av trips per trip_id -----
-    const tripsById = new Map();
-    data.tripsForLine.forEach(t => tripsById.set(t.trip_id, t));
+    const routeTrips = tripsByRouteId.get(line) || [];
+    const tripIdsForLine = routeTrips.map(t => t.trip_id);
 
     // GTFS-RT cache
     const now = Date.now();
@@ -149,50 +143,32 @@ app.get("/api/vehicles/:line", async (req, res) => {
       cachedAt = now;
     }
 
+    const vehicles = cachedFeed.entity
+      .filter(e => e.vehicle?.position && tripIdsForLine.includes(e.vehicle.trip?.tripId))
+      .map(e => {
+        const tripId = e.vehicle.trip?.tripId;
+        const trip = tripsById.get(tripId);
 
-
-    // Bygg index för sista hållplats
-const stopsAllById = new Map();
-for (const s of (data?.stopsAll || [])) stopsAllById.set(s.stop_id, s);
-
-const lastStopNameByTripId = new Map();
-for (const [tripId, sts] of (data?.stopTimesByTripId || [])) {
-  const last = sts.reduce((a,b) =>
-    Number(a.stop_sequence) > Number(b.stop_sequence) ? a : b
-  );
-  const stop = stopsAllById.get(last.stop_id);
-  if (stop) lastStopNameByTripId.set(tripId, stop.stop_name);
-}
-
-const vehicles = cachedFeed.entity
-  .filter(e => e.vehicle?.position && tripIdsForLine.includes(e.vehicle.trip?.tripId))
-  .map(e => {
-    const tripId = e.vehicle.trip?.tripId;
-    const trip = data.tripsForLine.find(t => t.trip_id === tripId);
-
-    return {
-      id: e.vehicle.vehicle?.id || e.id,
-      lat: e.vehicle.position.latitude,
-      lon: e.vehicle.position.longitude,
-      bearing: e.vehicle.position.bearing ?? 0,
-      directionId: e.vehicle.trip?.directionId ?? null,
-      destination:
-        trip?.trip_headsign ||
-        lastStopNameByTripId.get(tripId) ||
-        "Okänd destination"
-    };
-  });
-
+        return {
+          id: e.vehicle.vehicle?.id || e.id,
+          lat: e.vehicle.position.latitude,
+          lon: e.vehicle.position.longitude,
+          bearing: e.vehicle.position.bearing ?? 0,
+          directionId: e.vehicle.trip?.directionId ?? null,
+          destination: trip?.trip_headsign || lastStopNameByTripId.get(tripId) || "Okänd destination"
+        };
+      });
 
     res.json(vehicles);
 
-  } catch (e) {
-    console.error("GTFS-RT ERROR:", e);
-    res.status(500).json({ error: "Kunde inte hämta live-bussar", details: e.message });
+  } catch (err) {
+    console.error("GTFS-RT ERROR:", err);
+    res.status(500).json({ error: "Kunde inte hämta live-bussar", details: err.message });
   }
 });
 
 // ----- Test -----
-app.get("/api/test", (req, res) => res.json({ ok: true, msg: "Backend fungerar på Render!" }));
+app.get("/api/test", (req,res) => res.json({ ok:true, msg:"Backend fungerar på Render!" }));
 
+// ----- Start -----
 app.listen(PORT, () => console.log(`🚍 Backend kör på port ${PORT}`));

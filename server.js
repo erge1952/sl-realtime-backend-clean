@@ -42,9 +42,11 @@ async function loadCSVfromURL(url, columns) {
 }
 
 async function loadGTFSforLine(line) {
+  // Kolla cache
   const cached = gtfsCache.get(line);
   if (cached && Date.now() - cached.timestamp < LINE_CACHE_TTL) return cached.data;
 
+  // Ladda routes
   const routes = await loadCSVfromURL(`${GTFS_BASE}routes.json`, [
     "route_id", "agency_id", "route_short_name", "route_long_name", "route_type", "route_desc"
   ]);
@@ -53,12 +55,14 @@ async function loadGTFSforLine(line) {
 
   const route_id = route.route_id;
 
+  // Ladda trips för linjen
   const trips = await loadCSVfromURL(`${GTFS_BASE}trips.json`, [
     "route_id", "service_id", "trip_id", "trip_headsign", "direction_id", "shape_id"
   ]);
   const tripsForLine = trips.filter(t => t.route_id === route_id);
   if (!tripsForLine.length) return { route };
 
+  // Ladda shapes och stops
   const shapes = await loadCSVfromURL(`${GTFS_BASE}shapes.json`, [
     "shape_id", "shape_pt_lat", "shape_pt_lon", "shape_pt_sequence", "shape_dist_traveled"
   ]);
@@ -71,6 +75,7 @@ async function loadGTFSforLine(line) {
     "pickup_booking_rule_id","drop_off_booking_rule_id"
   ]);
 
+  // Indexera stop_times per trip_id
   const stopTimesByTripId = new Map();
   for (const st of stopTimesAll) {
     if (!stopTimesByTripId.has(st.trip_id)) stopTimesByTripId.set(st.trip_id, []);
@@ -127,8 +132,14 @@ app.get("/api/vehicles/:line", async (req, res) => {
     const line = req.params.line.trim();
     const data = await loadGTFSforLine(line);
     if (!data || !data.tripsForLine?.length) return res.json([]);
+
     const tripIdsForLine = data.tripsForLine.map(t => t.trip_id);
 
+    // ----- Snabb lookup av trips per trip_id -----
+    const tripsById = new Map();
+    data.tripsForLine.forEach(t => tripsById.set(t.trip_id, t));
+
+    // GTFS-RT cache
     const now = Date.now();
     if (!cachedFeed || now - cachedAt > CACHE_TTL) {
       const r = await fetch(GTFS_RT_URL, { headers: { Accept: "application/x-protobuf" } });
@@ -141,9 +152,8 @@ app.get("/api/vehicles/:line", async (req, res) => {
     const vehicles = cachedFeed.entity
       .filter(e => e.vehicle?.position && tripIdsForLine.includes(e.vehicle.trip?.tripId))
       .map(e => {
-        // ✅ Hämta trip från GTFS för linjen
         const tripId = e.vehicle.trip?.tripId;
-        const trip = data.tripsForLine.find(t => t.trip_id === tripId);
+        const trip = tripsById.get(tripId);
 
         return {
           id: e.vehicle.vehicle?.id || e.id,

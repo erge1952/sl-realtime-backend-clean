@@ -146,8 +146,7 @@ app.get("/api/vehicles/:line", async (req,res) => {
     const vehicles = cachedFeed.entity
   .filter(e =>
     e.vehicle?.position &&
-    e.vehicle.trip?.routeId === route.route_short_name
-  )
+    e.vehicle.trip?.routeId === route.route_id
   .map(e => ({
     id: e.vehicle.vehicle?.id || e.id,
     lat: e.vehicle.position.latitude,

@@ -5,10 +5,18 @@ import fetch from "node-fetch";
 import protobuf from "protobufjs";
 import { parse } from "csv-parse/sync";
 
+// ----- Init Express -----
 const app = express();
-app.use(cors());
-app.use(express.json());
 const PORT = process.env.PORT || 3000;
+
+// ----- CORS -----
+const corsOptions = {
+  origin: "https://gerring.com",  // Frontend
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type"]
+};
+app.use(cors(corsOptions));  // Sätts **innan alla routes**
+app.use(express.json());
 
 // ----- SL API Key -----
 const SL_API_KEY = process.env.SL_API_KEY;
@@ -77,7 +85,9 @@ let cachedFeed = null;
 let cachedAt = 0;
 const CACHE_TTL = 5000; // 5 sek
 
-// ----- Route: linje + hållplatser -----
+// ----- Routes -----
+
+// Linje + hållplatser
 app.get("/api/line/:line", async (req,res) => {
   try {
     await initGTFS();
@@ -119,7 +129,7 @@ app.get("/api/line/:line", async (req,res) => {
   }
 });
 
-// ----- Route: live bussar per linje -----
+// Livebussar
 app.get("/api/vehicles/:line", async (req,res) => {
   try {
     await initGTFS();
@@ -130,8 +140,6 @@ app.get("/api/vehicles/:line", async (req,res) => {
 
     const tripsForLine = tripsByRouteId.get(route.route_id);
     if (!tripsForLine?.length) return res.json([]);
-
-    const tripIdsForLine = tripsForLine.map(t => t.trip_id);
 
     // GTFS-RT
     const now = Date.now();
@@ -144,31 +152,27 @@ app.get("/api/vehicles/:line", async (req,res) => {
     }
 
     const vehicles = cachedFeed.entity
-    .filter(e =>
-      e.vehicle?.position &&
-      e.vehicle.trip?.routeId === route.route_id
-    )
-    .map(e => ({
-      id: e.vehicle.vehicle?.id || e.id,
-      lat: e.vehicle.position.latitude,
-      lon: e.vehicle.position.longitude,
-      bearing: e.vehicle.position.bearing ?? 0,
-      directionId: e.vehicle.trip?.directionId
-    }));
-  
-  res.json(vehicles);
-  
+      .filter(e => e.vehicle?.position && e.vehicle.trip?.routeId === route.route_id)
+      .map(e => ({
+        id: e.vehicle.vehicle?.id || e.id,
+        lat: e.vehicle.position.latitude,
+        lon: e.vehicle.position.longitude,
+        bearing: e.vehicle.position.bearing ?? 0,
+        directionId: e.vehicle.trip?.directionId
+      }));
+
+    res.json(vehicles);
   } catch (e) {
     console.error(e);
     res.status(500).json({ error:"Kunde inte hämta live-bussar", details:e.message });
   }
 });
 
-// ----- Test -----
+// Test
 app.get("/api/test", (req,res)=>res.json({ ok:true, msg:"Backend fungerar på Render!" }));
 
-// ----- Health check -----
+// Health check
 app.get("/", (req,res)=>res.send("SL Realtime Backend OK 🚍"));
 
-// ----- Start server -----
+// Start server
 app.listen(PORT, ()=>console.log(`🚍 Backend kör på port ${PORT}`));

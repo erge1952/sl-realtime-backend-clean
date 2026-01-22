@@ -152,6 +152,7 @@ app.get("/api/vehicles/:line", async (req, res) => {
         lon: e.vehicle.position.longitude,
         bearing: e.vehicle.position.bearing ?? 0,
         directionId: e.vehicle.trip?.directionId
+        destination: trip?.trip_headsign || "Okänd destination"
       }));
 
     res.json(vehicles);

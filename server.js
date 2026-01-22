@@ -144,19 +144,20 @@ app.get("/api/vehicles/:line", async (req,res) => {
     }
 
     const vehicles = cachedFeed.entity
-  .filter(e =>
-    e.vehicle?.position &&
-    e.vehicle.trip?.routeId === route.route_id
-  .map(e => ({
-    id: e.vehicle.vehicle?.id || e.id,
-    lat: e.vehicle.position.latitude,
-    lon: e.vehicle.position.longitude,
-    bearing: e.vehicle.position.bearing ?? 0,
-    directionId: e.vehicle.trip?.directionId
-  }));
-
-
-    res.json(vehicles);
+    .filter(e =>
+      e.vehicle?.position &&
+      e.vehicle.trip?.routeId === route.route_id
+    )
+    .map(e => ({
+      id: e.vehicle.vehicle?.id || e.id,
+      lat: e.vehicle.position.latitude,
+      lon: e.vehicle.position.longitude,
+      bearing: e.vehicle.position.bearing ?? 0,
+      directionId: e.vehicle.trip?.directionId
+    }));
+  
+  res.json(vehicles);
+  
   } catch (e) {
     console.error(e);
     res.status(500).json({ error:"Kunde inte hämta live-bussar", details:e.message });

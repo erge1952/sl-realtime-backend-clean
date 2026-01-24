@@ -21,7 +21,7 @@ const GTFS_RT_URL =
 // 🔌 MySQL
 // =====================================================
 const db = await mysql.createPool({
-  host: "localhost",
+  host: "auth-db504.hstgr.io",
   user: "u160886294_erge08",
   password: "KuliJul2025!",                                    //process.env.DB_PASS, // <-- SÄTT I ENV
   database: "u160886294_sldata",

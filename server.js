@@ -30,7 +30,7 @@ const GTFS_RT_URL =
 const db = await mysql.createPool({
   host: "auth-db504.hstgr.io",
   user: "u160886294_erge08",
-  password: "KuliJul2025!",                                    //process.env.DB_PASS, // <-- SÄTT I ENV
+  password: "KuliJul2025!", // ⚠️ lägg i env i prod
   database: "u160886294_sldata",
   waitForConnections: true,
   connectionLimit: 10
@@ -39,7 +39,7 @@ const db = await mysql.createPool({
 console.log("✅ MySQL pool skapad");
 
 // =====================================================
-// 📦 GTFS-RT proto (ORÖRD)
+// 📦 GTFS-RT proto
 // =====================================================
 let FeedMessage;
 {
@@ -62,15 +62,15 @@ const lineCache = new Map();
 const LINE_CACHE_TTL = 10 * 60 * 1000;
 
 // =====================================================
-// 🚍 Hämta GTFS-data för linje (DB)
+// 🚍 Hämta GTFS-data för linje
 // =====================================================
 async function loadGTFSforLine(line) {
   const cached = lineCache.get(line);
   if (cached && Date.now() - cached.ts < LINE_CACHE_TTL) return cached.data;
 
-  // route
+  // route (⬅️ route_type hämtas här)
   const [[route]] = await db.query(
-    "SELECT route_id FROM routes WHERE route_short_name = ?",
+    "SELECT route_id, route_type FROM routes WHERE route_short_name = ?",
     [line]
   );
   if (!route) return null;
@@ -100,7 +100,9 @@ async function loadGTFSforLine(line) {
   // index stop_times per trip
   const stopTimesByTripId = new Map();
   for (const r of stopTimes) {
-    if (!stopTimesByTripId.has(r.trip_id)) stopTimesByTripId.set(r.trip_id, []);
+    if (!stopTimesByTripId.has(r.trip_id)) {
+      stopTimesByTripId.set(r.trip_id, []);
+    }
     stopTimesByTripId.get(r.trip_id).push(r);
   }
 
@@ -117,6 +119,7 @@ async function loadGTFSforLine(line) {
   );
 
   const data = {
+    routeType: route.route_type, // ⭐ HÄR
     trips,
     stopTimesByTripId,
     shape: shapeRows.map(r => [
@@ -155,7 +158,8 @@ app.get("/api/line/:line", async (req, res) => {
 
     res.json({
       shape: data.shape,
-      stops: stopsOut
+      stops: stopsOut,
+      routeType: data.routeType // ⭐
     });
 
   } catch (e) {
@@ -182,7 +186,7 @@ app.get("/api/vehicles/:line", async (req, res) => {
       lastStopNameByTripId.set(tripId, last.stop_name);
     }
 
-    // GTFS-RT cache (ORÖRD logik)
+    // GTFS-RT cache
     const now = Date.now();
     if (!cachedFeed || now - cachedAt > CACHE_TTL) {
       const r = await fetch(GTFS_RT_URL, {
@@ -208,6 +212,7 @@ app.get("/api/vehicles/:line", async (req, res) => {
           lon: e.vehicle.position.longitude,
           bearing: e.vehicle.position.bearing ?? 0,
           directionId: e.vehicle.trip.directionId ?? null,
+          routeType: data.routeType, // ⭐
           destination:
             trip?.trip_headsign ||
             lastStopNameByTripId.get(tripId) ||

@@ -6,7 +6,14 @@ import protobuf from "protobufjs";
 import mysql from "mysql2/promise";
 
 const app = express();
-app.use(cors({ origin: "https://gerring.com" }));
+
+app.use(cors({
+  origin: [
+    "https://gerring.com",
+    "https://www.gerring.com"
+  ]
+}));
+
 app.use(express.json());
 
 const PORT = process.env.PORT || 3000;

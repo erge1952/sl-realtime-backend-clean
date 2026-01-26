@@ -77,7 +77,10 @@ async function loadGTFSforLine(line) {
 
   // trips
   const [trips] = await db.query(
-    "SELECT trip_id, trip_headsign, direction_id, shape_id FROM trips WHERE route_id = ?",
+    "SELECT trip_id, trip_headsign, direction_id, shape_id
+    FROM trips
+    WHERE route_id = ?
+    LIMIT 2",
     [route.route_id]
   );
   if (!trips.length) return null;

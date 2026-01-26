@@ -81,6 +81,7 @@ const [trips] = await db.query(
   SELECT trip_id, trip_headsign, direction_id, shape_id
   FROM trips
   WHERE route_id = ?
+  ORDER BY service_id DESC
   LIMIT 2
   `,
     [route.route_id]

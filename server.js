@@ -75,15 +75,9 @@ async function loadGTFSforLine(line) {
   );
   if (!route) return null;
 
-// trips
-const [trips] = await db.query(
-  `
-  SELECT trip_id, trip_headsign, direction_id, shape_id
-  FROM trips
-  WHERE route_id = ?
-  ORDER BY service_id DESC
-  LIMIT 2
-  `,
+  // trips
+  const [trips] = await db.query(
+    "SELECT trip_id, trip_headsign, direction_id, shape_id FROM trips WHERE route_id = ?",
     [route.route_id]
   );
   if (!trips.length) return null;

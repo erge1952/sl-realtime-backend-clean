@@ -68,7 +68,7 @@ async function loadGTFSforLine(line) {
   const cached = lineCache.get(line);
   if (cached && Date.now() - cached.ts < LINE_CACHE_TTL) return cached.data;
 
-  // route (⬅️ route_type hämtas här)
+  // route
   const [[route]] = await db.query(
     "SELECT route_id, route_type FROM routes WHERE route_short_name = ?",
     [line]
@@ -84,11 +84,12 @@ async function loadGTFSforLine(line) {
 
   const tripIds = trips.map(t => t.trip_id);
 
-  // stops + stop_times
+  // stops + stop_times (inkl tider)
   const [stopTimes] = await db.query(
     `
     SELECT st.trip_id, st.stop_sequence,
-           s.stop_id, s.stop_name, s.stop_lat, s.stop_lon
+           s.stop_id, s.stop_name, s.stop_lat, s.stop_lon,
+           st.arrival_time, st.departure_time
     FROM stop_times st
     JOIN stops s ON s.stop_id = st.stop_id
     WHERE st.trip_id IN (?)
@@ -119,7 +120,7 @@ async function loadGTFSforLine(line) {
   );
 
   const data = {
-    routeType: route.route_type, // ⭐ HÄR
+    routeType: route.route_type,
     trips,
     stopTimesByTripId,
     shape: shapeRows.map(r => [
@@ -151,7 +152,9 @@ app.get("/api/line/:line", async (req, res) => {
         stopsOut.push({
           lat: Number(s.stop_lat),
           lon: Number(s.stop_lon),
-          name: s.stop_name
+          name: s.stop_name,
+          arrival_time: s.arrival_time,     // ✅ Lägg till
+          departure_time: s.departure_time  // ✅ Lägg till
         });
       }
     }
@@ -159,7 +162,7 @@ app.get("/api/line/:line", async (req, res) => {
     res.json({
       shape: data.shape,
       stops: stopsOut,
-      routeType: data.routeType // ⭐
+      routeType: data.routeType
     });
 
   } catch (e) {
@@ -212,7 +215,7 @@ app.get("/api/vehicles/:line", async (req, res) => {
           lon: e.vehicle.position.longitude,
           bearing: e.vehicle.position.bearing ?? 0,
           directionId: e.vehicle.trip.directionId ?? null,
-          routeType: data.routeType, // ⭐
+          routeType: data.routeType,
           destination:
             trip?.trip_headsign ||
             lastStopNameByTripId.get(tripId) ||

@@ -53,7 +53,7 @@ let FeedMessage;
 // =====================================================
 let cachedFeed = null;
 let cachedAt = 0;
-const CACHE_TTL = 5000;
+const CACHE_TTL = 2000;
 
 // =====================================================
 // 🧠 Cache per linje

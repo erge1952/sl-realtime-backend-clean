@@ -53,16 +53,16 @@ let FeedMessage;
 // =====================================================
 let cachedFeed = null;
 let cachedAt = 0;
-const CACHE_TTL = 1500;
+const CACHE_TTL = 5000;
 
 // =====================================================
-// 🧠 Cache per linje
+// 🧠 Cache per linje (DB)
 // =====================================================
 const lineCache = new Map();
 const LINE_CACHE_TTL = 10 * 60 * 1000;
 
 // =====================================================
-// 🚍 Hämta GTFS-data för linje (utan tider)
+// 🚍 Hämta GTFS-data för linje
 // =====================================================
 async function loadGTFSforLine(line) {
   const cached = lineCache.get(line);
@@ -84,16 +84,12 @@ async function loadGTFSforLine(line) {
 
   const tripIds = trips.map(t => t.trip_id);
 
-  // stop_times + stops (ENDST minimal version)
-  const [stopRows] = await db.query(
+  // stops + stop_times (inkl tider)
+  const [stopTimes] = await db.query(
     `
-    SELECT
-      st.trip_id,
-      st.stop_sequence,
-      s.stop_id,
-      s.stop_name,
-      s.stop_lat,
-      s.stop_lon
+    SELECT st.trip_id, st.stop_sequence,
+           s.stop_id, s.stop_name, s.stop_lat, s.stop_lon,
+           st.arrival_time, st.departure_time
     FROM stop_times st
     JOIN stops s ON s.stop_id = st.stop_id
     WHERE st.trip_id IN (?)
@@ -102,8 +98,9 @@ async function loadGTFSforLine(line) {
     [tripIds]
   );
 
+  // index stop_times per trip
   const stopTimesByTripId = new Map();
-  for (const r of stopRows) {
+  for (const r of stopTimes) {
     if (!stopTimesByTripId.has(r.trip_id)) {
       stopTimesByTripId.set(r.trip_id, []);
     }
@@ -155,7 +152,9 @@ app.get("/api/line/:line", async (req, res) => {
         stopsOut.push({
           lat: Number(s.stop_lat),
           lon: Number(s.stop_lon),
-          name: s.stop_name
+          name: s.stop_name,
+          arrival_time: s.arrival_time,     // ✅ Lägg till
+          departure_time: s.departure_time  // ✅ Lägg till
         });
       }
     }
@@ -183,7 +182,7 @@ app.get("/api/vehicles/:line", async (req, res) => {
 
     const tripIds = data.trips.map(t => t.trip_id);
 
-    // destination per trip (sista hållplatsen)
+    // destination per trip
     const lastStopNameByTripId = new Map();
     for (const [tripId, sts] of data.stopTimesByTripId) {
       const last = sts[sts.length - 1];

@@ -115,8 +115,21 @@ async function loadGTFSforLine(line) {
     stopTimesByTripId.get(r.trip_id).push(r);
   }
 
-  const shapeId = trips[0].shape_id;
+  const shapeId = trips?.[0]?.shape_id;
 
+let shapeRows = [];
+
+if (shapeId) {
+  [shapeRows] = await db.query(
+    `
+    SELECT shape_pt_lat, shape_pt_lon
+    FROM shapes
+    WHERE shape_id = ?
+    ORDER BY shape_pt_sequence
+    `,
+    [shapeId]
+  );
+}
   const [shapeRows] = await db.query(
     `
     SELECT shape_pt_lat, shape_pt_lon
@@ -212,6 +225,7 @@ app.get("/api/vehicles/:line", async (req, res) => {
       cachedAt = now;
 
       console.log("Realtime feed uppdaterad");
+      console.log("Feed entities:", cachedFeed?.entity?.length);
     }
 
     // ===== FAST LOOKUP SETS =====

@@ -199,25 +199,26 @@ app.get("/api/vehicles/:line", async (req, res) => {
       console.log("Realtime feed uppdaterad");
     }
 
-    const vehicles = cachedFeed.entity
-      .filter(e => {
-        if (!e.vehicle?.position) return false;
+ const vehicles = cachedFeed.entity
+  .filter(e => e.vehicle?.position)
+  .map(e => {
+    const tripId = e.vehicle.trip?.tripId;
 
-        const tripId = e.vehicle.trip?.tripId;
-        if (!tripId) return false;
+    const trip = tripId
+      ? data.trips.find(t => t.trip_id === tripId)
+      : null;
 
-        return tripIdSet.has(tripId);
-      })
-      .map(e => ({
-        id: e.vehicle.vehicle?.id || e.id,
-        lat: e.vehicle.position.latitude,
-        lon: e.vehicle.position.longitude,
-        bearing: e.vehicle.position.bearing ?? 0,
-        directionId: e.vehicle.trip?.directionId ?? null,
-        routeType: data.routeType,
-    destination: (() => {
-  const tripId = e.vehicle.trip?.tripId;
-  if (!tripId) return "Okänd destination";
+    return {
+      id: e.vehicle.vehicle?.id || e.id,
+      lat: e.vehicle.position.latitude,
+      lon: e.vehicle.position.longitude,
+      bearing: e.vehicle.position.bearing ?? 0,
+      directionId: e.vehicle.trip?.directionId ?? null,
+      routeType: data.routeType,
+      destination: trip?.trip_headsign || "Okänd destination"
+    };
+  })
+  .filter(v => v.lat && v.lon);
 
   const trip = data.trips.find(t => t.trip_id === tripId);
   return trip?.trip_headsign || "Okänd destination";

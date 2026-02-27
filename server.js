@@ -193,18 +193,15 @@ app.get("/api/line/:line", async (req, res) => {
 // =====================================================
 
 app.get("/api/vehicles/:line", async (req, res) => {
-
   try {
-
     const line = req.params.line.trim();
     const data = await loadGTFSforLine(line);
-
     if (!data) return res.json([]);
 
     const now = Date.now();
 
+    // ===== RT CACHE =====
     if (!cachedFeed || now - cachedAt > CACHE_TTL) {
-
       const r = await fetch(GTFS_RT_URL, {
         headers: { Accept: "application/x-protobuf" }
       });
@@ -217,43 +214,45 @@ app.get("/api/vehicles/:line", async (req, res) => {
       console.log("Realtime feed uppdaterad");
     }
 
-    const tripIdSet = new Set(data.trips.map(t => t.trip_id));
+    // ===== FAST LOOKUP SETS =====
+    const tripIdSet = data.tripIdSet;
 
- const vehicles = cachedFeed.entity
-  .filter(e => e.vehicle?.position)
-  .map(e => {
+    // ===== BUILD RESPONSE =====
+    const vehicles = cachedFeed.entity
+      .filter(e => {
+        if (!e.vehicle?.position) return false;
 
-    const tripId = e.vehicle.trip?.tripId;
+        const tripId = e.vehicle.trip?.tripId;
+        return tripId && tripIdSet.has(tripId);
+      })
+      .map(e => {
+        const tripId = e.vehicle.trip.tripId;
 
-    if (!tripIdSet.has(tripId)) return null;
+        const trip = data.trips.find(t => t.trip_id === tripId);
 
-    const trip = data.trips.find(t => t.trip_id === tripId);
+        return {
+          id: e.vehicle.vehicle?.id || e.id,
+          lat: e.vehicle.position.latitude,
+          lon: e.vehicle.position.longitude,
+          bearing: e.vehicle.position.bearing ?? 0,
+          directionId: e.vehicle.trip?.directionId ?? null,
 
-    const destination =
-      e.vehicle.trip?.tripHeadsign ||
-      e.vehicle.trip?.headsign ||
-      trip?.trip_headsign ||
-      "Okänd destination";
+          routeType: data.routeType,
 
-    return {
-      id: e.vehicle.vehicle?.id || e.id,
-      lat: e.vehicle.position.latitude,
-      lon: e.vehicle.position.longitude,
-      bearing: e.vehicle.position.bearing ?? 0,
-      directionId: e.vehicle.trip?.directionId ?? null,
-      routeType: data.routeType,
-      destination
-    };
-
-  })
-  .filter(Boolean)
-  .filter(v => v.lat && v.lon);
+          destination:
+            e.vehicle.trip?.tripHeadsign ||
+            trip?.trip_headsign ||
+            e.vehicle.trip?.headsign ||
+            "Okänd destination"
+        };
+      })
+      .filter(v => Number.isFinite(v.lat) && Number.isFinite(v.lon));
 
     res.json(vehicles);
 
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: "VEHICLE ERROR" });
+    console.error("VEHICLE ERROR:", e);
+    res.status(500).json({ error: "Kunde inte hämta fordon" });
   }
 });
 

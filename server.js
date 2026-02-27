@@ -185,6 +185,7 @@ app.get("/api/vehicles/:line", async (req, res) => {
 
     const now = Date.now();
 
+    // ----- GTFS-RT cache -----
     if (!cachedFeed || now - cachedAt > CACHE_TTL) {
       const r = await fetch(GTFS_RT_URL, {
         headers: { Accept: "application/x-protobuf" }
@@ -198,8 +199,18 @@ app.get("/api/vehicles/:line", async (req, res) => {
       console.log("Realtime feed uppdaterad");
     }
 
+    // ----- Viktigt filter -----
+    const tripIdSet = new Set(data.trips.map(t => t.trip_id));
+
     const vehicles = cachedFeed.entity
-      .filter(e => e.vehicle?.position)
+      .filter(e => {
+        if (!e.vehicle?.position) return false;
+
+        const tripId = e.vehicle.trip?.tripId;
+        if (!tripId) return false;
+
+        return tripIdSet.has(tripId);
+      })
       .map(e => {
         const tripId = e.vehicle.trip?.tripId;
 

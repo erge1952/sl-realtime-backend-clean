@@ -122,10 +122,11 @@ async function loadGTFSforLine(line) {
     [shapeId]
   );
 
-  const data = {
-    routeType: route.route_type,
-    trips,
-    stopTimesByTripId,
+const data = {
+  routeId: route.route_id,   // <-- NY
+  routeType: route.route_type,
+  trips,
+  stopTimesByTripId,
     shape: shapeRows.map(r => [
       Number(r.shape_pt_lat),
       Number(r.shape_pt_lon)
@@ -201,11 +202,11 @@ app.get("/api/vehicles/:line", async (req, res) => {
       cachedAt = now;
     }
 
-    const vehicles = cachedFeed.entity
-      .filter(e =>
-        e.vehicle?.position &&
-        tripIds.includes(e.vehicle.trip?.tripId)
-      )
+   const vehicles = cachedFeed.entity
+  .filter(e =>
+    e.vehicle?.position &&
+    e.vehicle.trip?.routeId === data.routeId
+  )
       .map(e => {
         const tripId = e.vehicle.trip.tripId;
         const trip = data.trips.find(t => t.trip_id === tripId);

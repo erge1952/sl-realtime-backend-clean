@@ -213,27 +213,27 @@ app.get("/api/vehicles/:line", async (req, res) => {
     }
 
 const vehicles = cachedFeed.entity
-  .filter(e => {
-    if (!e.vehicle?.position) return false;
+  .filter(e =>
+    e.vehicle?.position &&
+    data.trips.some(t => t.trip_id === e.vehicle.trip?.tripId)
+  )
+  .map(e => {
+    const tripId = e.vehicle.trip.tripId;
 
-    const vehicleId = e.vehicle.vehicle?.id;
-    if (!vehicleId) return false;
+    const trip = data.trips.find(t => t.trip_id === tripId);
 
-    // Matcha på linjens prefix i vehicle-id
-    return vehicleId.includes(data.routeId?.toString() ?? line);
-  })
-  .map(e => ({
-    id: e.vehicle.vehicle?.id || e.id,
-    lat: e.vehicle.position.latitude,
-    lon: e.vehicle.position.longitude,
-    bearing: e.vehicle.position.bearing ?? 0,
-    directionId: e.vehicle.trip?.directionId ?? null,
-    routeType: data.routeType,
-    destination:
-      e.vehicle.trip?.tripHeadsign ||
-      "Okänd destination"
-  }));
-
+    return {
+      id: e.vehicle.vehicle?.id || e.id,
+      lat: e.vehicle.position.latitude,
+      lon: e.vehicle.position.longitude,
+      bearing: e.vehicle.position.bearing ?? 0,
+      directionId: e.vehicle.trip?.directionId ?? null,
+      routeType: data.routeType,
+      destination:
+        trip?.trip_headsign ||
+        "Okänd destination"
+    };
+  });
     res.json(vehicles);
 
   } catch (e) {

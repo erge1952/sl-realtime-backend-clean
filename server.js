@@ -199,6 +199,17 @@ app.get("/api/vehicles/:line", async (req, res) => {
       const buffer = await r.arrayBuffer();
       cachedFeed = FeedMessage.decode(new Uint8Array(buffer));
       cachedAt = now;
+
+      console.log(
+  cachedFeed.entity
+    .filter(e => e.vehicle?.trip)
+    .slice(0, 10)
+    .map(e => ({
+      tripId: e.vehicle.trip.tripId,
+      routeId: e.vehicle.trip.routeId,
+      directionId: e.vehicle.trip.directionId
+    }))
+);
     }
 
 const vehicles = cachedFeed.entity

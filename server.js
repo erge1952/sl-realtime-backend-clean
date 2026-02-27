@@ -123,7 +123,6 @@ async function loadGTFSforLine(line) {
   );
 
 const data = {
-  routeId: route.route_id,   // <-- NY
   routeType: route.route_type,
   trips,
   stopTimesByTripId,
@@ -202,10 +201,10 @@ app.get("/api/vehicles/:line", async (req, res) => {
       cachedAt = now;
     }
 
-   const vehicles = cachedFeed.entity
+const vehicles = cachedFeed.entity
   .filter(e =>
     e.vehicle?.position &&
-    e.vehicle.trip?.routeId === data.routeId
+    tripIds.includes(e.vehicle.trip?.tripId)
   )
       .map(e => {
         const tripId = e.vehicle.trip.tripId;

@@ -215,10 +215,13 @@ app.get("/api/vehicles/:line", async (req, res) => {
         bearing: e.vehicle.position.bearing ?? 0,
         directionId: e.vehicle.trip?.directionId ?? null,
         routeType: data.routeType,
-        destination:
-          e.vehicle.trip?.tripHeadsign ||
-          e.vehicle.trip?.headsign ||
-          "Okänd destination"
+    destination: (() => {
+  const tripId = e.vehicle.trip?.tripId;
+  if (!tripId) return "Okänd destination";
+
+  const trip = data.trips.find(t => t.trip_id === tripId);
+  return trip?.trip_headsign || "Okänd destination";
+})()
       }));
 
     res.json(vehicles);

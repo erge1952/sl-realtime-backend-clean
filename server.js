@@ -219,28 +219,35 @@ app.get("/api/vehicles/:line", async (req, res) => {
 
     const tripIdSet = new Set(data.trips.map(t => t.trip_id));
 
-    const vehicles = cachedFeed.entity
-      .filter(e => e.vehicle?.position)
-      .map(e => {
+ const vehicles = cachedFeed.entity
+  .filter(e => e.vehicle?.position)
+  .map(e => {
 
-        const tripId = e.vehicle.trip?.tripId;
+    const tripId = e.vehicle.trip?.tripId;
 
-        if (!tripIdSet.has(tripId)) return null;
+    if (!tripIdSet.has(tripId)) return null;
 
-        return {
-          id: e.vehicle.vehicle?.id || e.id,
-          lat: e.vehicle.position.latitude,
-          lon: e.vehicle.position.longitude,
-          bearing: e.vehicle.position.bearing ?? 0,
-          directionId: e.vehicle.trip?.directionId ?? null,
-          routeType: data.routeType,
-          destination:
-            data.tripMap?.get(tripId) || "Okänd destination"
-        };
+    const trip = data.trips.find(t => t.trip_id === tripId);
 
-      })
-      .filter(Boolean)
-      .filter(v => v.lat && v.lon);
+    const destination =
+      e.vehicle.trip?.tripHeadsign ||
+      e.vehicle.trip?.headsign ||
+      trip?.trip_headsign ||
+      "Okänd destination";
+
+    return {
+      id: e.vehicle.vehicle?.id || e.id,
+      lat: e.vehicle.position.latitude,
+      lon: e.vehicle.position.longitude,
+      bearing: e.vehicle.position.bearing ?? 0,
+      directionId: e.vehicle.trip?.directionId ?? null,
+      routeType: data.routeType,
+      destination
+    };
+
+  })
+  .filter(Boolean)
+  .filter(v => v.lat && v.lon);
 
     res.json(vehicles);
 

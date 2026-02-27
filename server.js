@@ -162,43 +162,79 @@ let shapeRows = [];
 // Line endpoint
 // =====================================================
 
-app.get("/api/line/:line", async (req, res) => {
-
+app.get("/api/vehicles/:line", async (req, res) => {
   try {
-
     const line = req.params.line.trim();
     const data = await loadGTFSforLine(line);
 
-    if (!data)
-      return res.status(404).json({ error: "Ingen linje" });
+    if (!data) return res.json([]);
 
-    const stopsOut = [];
-    const seen = new Set();
+    const now = Date.now();
 
-    for (const sts of data.stopTimesByTripId.values()) {
-      for (const s of sts) {
+    // ===== RT CACHE =====
+    if (!cachedFeed || now - cachedAt > CACHE_TTL) {
+      const r = await fetch(GTFS_RT_URL, {
+        headers: { Accept: "application/x-protobuf" }
+      });
 
-        if (seen.has(s.stop_id)) continue;
+      const buffer = await r.arrayBuffer();
 
-        seen.add(s.stop_id);
+      cachedFeed = FeedMessage.decode(new Uint8Array(buffer));
+      cachedAt = now;
 
-        stopsOut.push({
-          lat: Number(s.stop_lat),
-          lon: Number(s.stop_lon),
-          name: s.stop_name
-        });
+      console.log("Realtime feed uppdaterad");
+    }
+
+    // ===== Lookup tables =====
+    const tripIdSet = new Set(data.trips.map(t => t.trip_id));
+
+    const tripMap = new Map(
+      data.trips.map(t => [t.trip_id, t])
+    );
+
+    const destinationMap = new Map();
+
+    for (const [tripId, sts] of data.stopTimesByTripId) {
+      if (sts?.length) {
+        destinationMap.set(tripId, sts[sts.length - 1].stop_name);
       }
     }
 
-    res.json({
-      shape: data.shape,
-      stops: stopsOut,
-      routeType: data.routeType
-    });
+    // ===== Vehicles parse =====
+    const vehicles = (cachedFeed?.entity || [])
+      .filter(e => {
+        if (!e.vehicle?.position) return false;
+
+        const tripId = e.vehicle.trip?.tripId;
+        return tripId && tripIdSet.has(tripId);
+      })
+      .map(e => {
+        const tripId = e.vehicle.trip?.tripId;
+
+        const trip = tripId ? tripMap.get(tripId) : null;
+
+        const destination =
+          trip?.trip_headsign ||
+          destinationMap.get(tripId) ||
+          "Okänd destination";
+
+        return {
+          id: e.vehicle.vehicle?.id || e.id,
+          lat: e.vehicle.position.latitude,
+          lon: e.vehicle.position.longitude,
+          bearing: e.vehicle.position.bearing ?? 0,
+          directionId: e.vehicle.trip?.directionId ?? null,
+          routeType: data.routeType,
+          destination
+        };
+      })
+      .filter(v => typeof v.lat === "number" && typeof v.lon === "number");
+
+    res.json(vehicles);
 
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: "LINE ERROR" });
+    console.error("VEHICLE ERROR:", e);
+    res.status(500).json({ error: "Kunde inte hämta fordon" });
   }
 });
 

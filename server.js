@@ -123,15 +123,16 @@ async function loadGTFSforLine(line) {
   );
 
 const data = {
-  routeId: route.route_id,   // <-- NY
+  routeId: route.route_id,
   routeType: route.route_type,
   trips,
+  tripIdSet: new Set(trips.map(t => t.trip_id)), // snabb lookup
   stopTimesByTripId,
-    shape: shapeRows.map(r => [
-      Number(r.shape_pt_lat),
-      Number(r.shape_pt_lon)
-    ])
-  };
+  shape: shapeRows.map(r => [
+    Number(r.shape_pt_lat),
+    Number(r.shape_pt_lon)
+  ])
+};
 
   lineCache.set(line, { data, ts: Date.now() });
   return data;

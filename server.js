@@ -236,7 +236,7 @@ app.get("/api/vehicles/:line", async (req, res) => {
 // 🔎 Test
 // =====================================================
 app.get("/api/test", (_, res) =>
-  res.json({ ok: true, msg: "Backend fungerar 🎉" })
+  res.json({ ok: true, msg: "Backend fungerar  🎉" })
 );
 
 app.listen(PORT, () =>

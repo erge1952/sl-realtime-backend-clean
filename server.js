@@ -18,7 +18,7 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 const SL_API_KEY = process.env.SL_API_KEY;
 
-if (!SL_API_KEY) console.warn("⚠️ SL_API_KEY är inte satt!");
+if (!SL_API_KEY) console.warn("⚠️ SL_API_KEY är inte  satt!");
 
 const GTFS_RT_URL =
   `https://opendata.samtrafiken.se/gtfs-rt/sl/VehiclePositions.pb?key=${SL_API_KEY}`;

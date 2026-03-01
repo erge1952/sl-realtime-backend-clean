@@ -239,6 +239,10 @@ app.get("/api/test", (_, res) =>
   res.json({ ok: true, msg: "Backend fungerar  🎉" })
 );
 
-app.listen(PORT, () =>
-  console.log(`🚍 Backend kör på port ${PORT}`)
-);
+app.listen(PORT, () => {
+  console.log(`🚍 Backend kör på port ${PORT}`);
+
+  // Värm upp MySQL-connection
+  db.query("SELECT 1").catch(console.error);
+});
+

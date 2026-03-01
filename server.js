@@ -111,16 +111,15 @@ async function loadGTFSforLine(line) {
   }
 
   // shape
-  const shapeIds = [...new Set(trips.map(t => t.shape_id))];
-
+  const shapeId = trips[0].shape_id;
   const [shapeRows] = await db.query(
     `
-    SELECT shape_id, shape_pt_lat, shape_pt_lon
+    SELECT shape_pt_lat, shape_pt_lon
     FROM shapes
-    WHERE shape_id IN (?)
-    ORDER BY shape_id, shape_pt_sequence
+    WHERE shape_id = ?
+    ORDER BY shape_pt_sequence
     `,
-    [shapeIds]
+    [shapeId]
   );
 
   const data = {

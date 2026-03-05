@@ -120,8 +120,11 @@ const [[shapeRow]] = await db.query(
 
 if (!shapeRow) return null;
 
-const shape = JSON.parse(shapeRow.shape_json);
+const shape = shapeRow?.shape_json
+  ? JSON.parse(shapeRow.shape_json)
+  : [];
 
+  
 const data = {
   routeType: route.route_type,
   trips,

@@ -110,27 +110,24 @@ async function loadGTFSforLine(line) {
     stopTimesByTripId.get(r.trip_id).push(r);
   }
 
-  // shape
-  const shapeId = trips[0].shape_id;
-  const [shapeRows] = await db.query(
-    `
-    SELECT shape_pt_lat, shape_pt_lon
-    FROM shapes
-    WHERE shape_id = ?
-    ORDER BY shape_pt_sequence
-    `,
-    [shapeId]
-  );
+  // shape (snabb cache-version)
+const shapeId = trips[0].shape_id;
 
-  const data = {
-    routeType: route.route_type,
-    trips,
-    stopTimesByTripId,
-    shape: shapeRows.map(r => [
-      Number(r.shape_pt_lat),
-      Number(r.shape_pt_lon)
-    ])
-  };
+const [[shapeRow]] = await db.query(
+  "SELECT shape_json FROM shape_cache WHERE shape_id = ?",
+  [shapeId]
+);
+
+if (!shapeRow) return null;
+
+const shape = JSON.parse(shapeRow.shape_json);
+
+const data = {
+  routeType: route.route_type,
+  trips,
+  stopTimesByTripId,
+  shape
+};
 
   lineCache.set(line, { data, ts: Date.now() });
   return data;
@@ -201,29 +198,31 @@ app.get("/api/vehicles/:line", async (req, res) => {
       cachedAt = now;
     }
 
-    const vehicles = cachedFeed.entity
-      .filter(e =>
-        e.vehicle?.position &&
-        tripIds.includes(e.vehicle.trip?.tripId)
-      )
-      .map(e => {
-        const tripId = e.vehicle.trip.tripId;
-        const trip = data.trips.find(t => t.trip_id === tripId);
+    // skapa snabb lookup
+const tripIdSet = new Set(data.trips.map(t => t.trip_id));
 
-        return {
-          id: e.vehicle.vehicle?.id || e.id,
-          lat: e.vehicle.position.latitude,
-          lon: e.vehicle.position.longitude,
-          bearing: e.vehicle.position.bearing ?? 0,
-          directionId: e.vehicle.trip.directionId ?? null,
-          routeType: data.routeType,
-          destination:
-            trip?.trip_headsign ||
-            lastStopNameByTripId.get(tripId) ||
-            "Okänd destination"
-        };
-      });
+const vehicles = cachedFeed.entity
+  .filter(e =>
+    e.vehicle?.position &&
+    tripIdSet.has(e.vehicle.trip?.tripId)
+  )
+  .map(e => {
+    const tripId = e.vehicle.trip.tripId;
+    const trip = data.trips.find(t => t.trip_id === tripId);
 
+    return {
+      id: e.vehicle.vehicle?.id || e.id,
+      lat: e.vehicle.position.latitude,
+      lon: e.vehicle.position.longitude,
+      bearing: e.vehicle.position.bearing ?? 0,
+      directionId: e.vehicle.trip.directionId ?? null,
+      routeType: data.routeType,
+      destination:
+        trip?.trip_headsign ||
+        lastStopNameByTripId.get(tripId) ||
+        "Okänd destination"
+    };
+  });
     res.json(vehicles);
 
   } catch (e) {

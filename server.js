@@ -5,6 +5,20 @@ import fetch from "node-fetch";
 import protobuf from "protobufjs";
 import mysql from "mysql2/promise";
 
+async function initDB() {
+  return await mysql.createPool({
+    host: "auth-db504.hstgr.io",
+    user: "u160886294_erge08",
+    password: "KuliJul2025!",
+    database: "u160886294_sldata",
+    waitForConnections: true,
+    connectionLimit: 10
+  });
+}
+
+const db = await initDB();
+
+const tripVehicleIndex = new Map();
 const app = express();
 
 app.use(cors({
@@ -27,14 +41,7 @@ const GTFS_RT_URL =
 // =====================================================
 // 🔌 MySQL
 // =====================================================
-const db = await mysql.createPool({
-  host: "auth-db504.hstgr.io",
-  user: "u160886294_erge08",
-  password: "KuliJul2025!", // ⚠️ lägg i env i prod
-  database: "u160886294_sldata",
-  waitForConnections: true,
-  connectionLimit: 10
-});
+
 
 console.log("✅ MySQL pool skapad");
 
@@ -80,6 +87,10 @@ async function loadGTFSforLine(line) {
     "SELECT trip_id, trip_headsign, direction_id, shape_id FROM trips WHERE route_id = ?",
     [route.route_id]
   );
+  const tripMap = new Map(
+    trips.map(t => [t.trip_id, t])
+  );
+
   if (!trips.length) return null;
 
   const tripIds = trips.map(t => t.trip_id);
@@ -124,7 +135,7 @@ const shape = shapeRow?.shape_json
   ? JSON.parse(shapeRow.shape_json)
   : [];
 
-  
+
 const data = {
   routeType: route.route_type,
   trips,
@@ -204,28 +215,32 @@ app.get("/api/vehicles/:line", async (req, res) => {
     // skapa snabb lookup
 const tripIdSet = new Set(data.trips.map(t => t.trip_id));
 
-const vehicles = cachedFeed.entity
-  .filter(e =>
-    e.vehicle?.position &&
-    tripIdSet.has(e.vehicle.trip?.tripId)
-  )
-  .map(e => {
-    const tripId = e.vehicle.trip.tripId;
-    const trip = data.trips.find(t => t.trip_id === tripId);
+const vehicles = [];
 
-    return {
-      id: e.vehicle.vehicle?.id || e.id,
-      lat: e.vehicle.position.latitude,
-      lon: e.vehicle.position.longitude,
-      bearing: e.vehicle.position.bearing ?? 0,
-      directionId: e.vehicle.trip.directionId ?? null,
-      routeType: data.routeType,
-      destination:
-        trip?.trip_headsign ||
-        lastStopNameByTripId.get(tripId) ||
-        "Okänd destination"
-    };
+for (const entity of cachedFeed.entity) {
+
+  const vehicle = entity.vehicle;
+  if (!vehicle?.position) continue;
+
+  const tripId = vehicle.trip?.tripId;
+  if (!tripIdSet.has(tripId)) continue;
+
+  const trip = tripMap.get(tripId);
+
+  vehicles.push({
+    id: vehicle.vehicle?.id || entity.id,
+    lat: vehicle.position.latitude,
+    lon: vehicle.position.longitude,
+    bearing: vehicle.position.bearing ?? 0,
+    directionId: vehicle.trip.directionId ?? null,
+    routeType: data.routeType,
+    destination:
+      trip?.trip_headsign ||
+      lastStopNameByTripId.get(tripId) ||
+      "Okänd destination"
   });
+}
+
     res.json(vehicles);
 
   } catch (e) {

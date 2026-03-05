@@ -136,12 +136,13 @@ const shape = shapeRow?.shape_json
   : [];
 
 
-const data = {
-  routeType: route.route_type,
-  trips,
-  stopTimesByTripId,
-  shape
-};
+  const data = {
+    routeType: route.route_type,
+    trips,
+    stopTimesByTripId,
+    shape,
+    tripMap
+  };
 
   lineCache.set(line, { data, ts: Date.now() });
   return data;
@@ -225,7 +226,7 @@ for (const entity of cachedFeed.entity) {
   const tripId = vehicle.trip?.tripId;
   if (!tripIdSet.has(tripId)) continue;
 
-  const trip = tripMap.get(tripId);
+  const trip = data.tripMap.get(tripId);
 
   vehicles.push({
     id: vehicle.vehicle?.id || entity.id,

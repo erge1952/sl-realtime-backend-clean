@@ -202,10 +202,6 @@ app.get("/api/vehicles/:line", async (req, res) => {
       lastStopNameByTripId.set(tripId, last.stop_name);
     }
 
-    // 🚢 Normalisera SL-färjor
-    let normalizedRouteType = data.routeType;
-    if (normalizedRouteType >= 1000) normalizedRouteType = 4;
-
     // GTFS-RT cache
     const now = Date.now();
     if (!cachedFeed || now - cachedAt > CACHE_TTL) {
@@ -217,29 +213,34 @@ app.get("/api/vehicles/:line", async (req, res) => {
       cachedAt = now;
     }
 
-    const tripIdSet = new Set(tripIds);
-    const vehicles = [];
+    // skapa snabb lookup
+const tripIdSet = new Set(data.trips.map(t => t.trip_id));
 
-    for (const entity of cachedFeed.entity) {
-      const vehicle = entity.vehicle;
-      if (!vehicle?.position) continue;
+const vehicles = [];
 
-      const tripId = vehicle.trip?.tripId;
-      const trip = data.tripMap.get(tripId); // trip kan vara undefined
+for (const entity of cachedFeed.entity) {
 
-      vehicles.push({
-        id: vehicle.vehicle?.id || entity.id,
-        lat: vehicle.position.latitude,
-        lon: vehicle.position.longitude,
-        bearing: vehicle.position.bearing ?? 0,
-        directionId: vehicle.trip?.directionId ?? null,
-        routeType: normalizedRouteType,
-        destination:
-          trip?.trip_headsign ||
-          lastStopNameByTripId.get(tripId) ||
-          "Okänd destination"
-      });
-    }
+  const vehicle = entity.vehicle;
+  if (!vehicle?.position) continue;
+
+  const tripId = vehicle.trip?.tripId;
+  if (!tripIdSet.has(tripId)) continue;
+
+  const trip = data.tripMap.get(tripId);
+
+  vehicles.push({
+    id: vehicle.vehicle?.id || entity.id,
+    lat: vehicle.position.latitude,
+    lon: vehicle.position.longitude,
+    bearing: vehicle.position.bearing ?? 0,
+    directionId: vehicle.trip.directionId ?? null,
+    routeType: data.routeType,
+    destination:
+      trip?.trip_headsign ||
+      lastStopNameByTripId.get(tripId) ||
+      "Okänd destination"
+  });
+}
 
     res.json(vehicles);
 

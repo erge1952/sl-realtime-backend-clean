@@ -31,8 +31,11 @@ app.use(cors({
 app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
-const SL_API_KEY = process.env.SL_API_KEY;
+const SL_API_KEY = process.env.SL_API_KEY?.trim();
 
+if (!SL_API_KEY) {
+  throw new Error("SL_API_KEY saknas!");
+}
 if (!SL_API_KEY) console.warn("⚠️ SL_API_KEY är inte satt!");
 
 const GTFS_RT_URL =
@@ -204,15 +207,29 @@ app.get("/api/vehicles/:line", async (req, res) => {
 
     // GTFS-RT cache
     const now = Date.now();
-    if (!cachedFeed || now - cachedAt > CACHE_TTL) {
-      const r = await fetch(GTFS_RT_URL, {
-        headers: { Accept: "application/x-protobuf" }
-      });
-      const buffer = await r.arrayBuffer();
-      cachedFeed = FeedMessage.decode(new Uint8Array(buffer));
-      cachedAt = now;
-    }
+if (!cachedFeed || now - cachedAt > CACHE_TTL) {
+  console.log("🔄 Hämtar GTFS-RT från Samtrafiken...");
 
+  const r = await fetch(GTFS_RT_URL, {
+    headers: {
+      Accept: "application/x-protobuf",
+      "Accept-Encoding": "gzip"
+    }
+  });
+
+  if (!r.ok) {
+    const text = await r.text();
+    console.error("❌ GTFS fetch failed:", r.status, text);
+    throw new Error(`GTFS error ${r.status}`);
+  }
+
+  const buffer = await r.arrayBuffer();
+
+  console.log("📦 Buffer size:", buffer.byteLength);
+
+  cachedFeed = FeedMessage.decode(new Uint8Array(buffer));
+  cachedAt = now;
+}
     // skapa snabb lookup
 const tripIdSet = new Set(data.trips.map(t => t.trip_id));
 

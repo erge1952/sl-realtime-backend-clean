@@ -16,6 +16,7 @@ async function initDB() {
   });
 }
 
+
 const db = await initDB();
 
 const app = express();
@@ -44,10 +45,10 @@ const GTFS_RT_URL =
 // =====================================================
 
 let FeedMessage;
-
 {
   const root = await protobuf.load("gtfs-realtime.proto");
   FeedMessage = root.lookupType("transit_realtime.FeedMessage");
+  console.log("✅ GTFS-RT proto loaded");
 }
 
 // =====================================================
@@ -67,9 +68,7 @@ const LINE_CACHE_TTL = 10 * 60 * 1000;
 
 async function loadGTFSforLine(line) {
   const cached = lineCache.get(line);
-  if (cached && Date.now() - cached.ts < LINE_CACHE_TTL) {
-    return cached.data;
-  }
+  if (cached && Date.now() - cached.ts < LINE_CACHE_TTL) return cached.data;
 
   const [[route]] = await db.query(
     "SELECT route_id, route_type FROM routes WHERE route_short_name = ?",
@@ -86,6 +85,7 @@ async function loadGTFSforLine(line) {
   if (!trips.length) return null;
 
   const tripMap = new Map(trips.map(t => [t.trip_id, t]));
+
   const tripIds = trips.map(t => t.trip_id);
 
   const [stopRows] = await db.query(
@@ -139,7 +139,48 @@ async function loadGTFSforLine(line) {
 }
 
 // =====================================================
-// VEHICLES
+// 🗺 /api/line
+// =====================================================
+
+app.get("/api/line/:line", async (req, res) => {
+  try {
+    const line = req.params.line.trim();
+    const data = await loadGTFSforLine(line);
+
+    if (!data) {
+      return res.status(404).json({ error: "Ingen linje" });
+    }
+
+    const stopsOut = [];
+    const seen = new Set();
+
+    for (const sts of data.stopTimesByTripId.values()) {
+      for (const s of sts) {
+        if (seen.has(s.stop_id)) continue;
+        seen.add(s.stop_id);
+
+        stopsOut.push({
+          lat: Number(s.stop_lat),
+          lon: Number(s.stop_lon),
+          name: s.stop_name
+        });
+      }
+    }
+
+    res.json({
+      shape: data.shape,
+      stops: stopsOut,
+      routeType: data.routeType
+    });
+
+  } catch (e) {
+    console.error("LINE ERROR:", e);
+    res.status(500).json({ error: "Kunde inte hämta linje" });
+  }
+});
+
+// =====================================================
+// 🚐 /api/vehicles (FIXED LOGIC)
 // =====================================================
 
 app.get("/api/vehicles/:line", async (req, res) => {
@@ -148,6 +189,8 @@ app.get("/api/vehicles/:line", async (req, res) => {
     const data = await loadGTFSforLine(line);
 
     if (!data) return res.json([]);
+
+    const tripIds = data.trips.map(t => t.trip_id);
 
     const lastStopNameByTripId = new Map();
 
@@ -159,6 +202,7 @@ app.get("/api/vehicles/:line", async (req, res) => {
     const now = Date.now();
 
     if (!cachedFeed || now - cachedAt > CACHE_TTL) {
+      console.log("🔄 Hämtar GTFS-RT...");
 
       const r = await fetch(GTFS_RT_URL, {
         headers: {
@@ -172,7 +216,7 @@ app.get("/api/vehicles/:line", async (req, res) => {
       cachedAt = now;
     }
 
-    const tripIdSet = new Set(data.trips.map(t => t.trip_id));
+    const tripIdSet = new Set(tripIds);
 
     const vehiclesMap = new Map();
 
@@ -183,8 +227,12 @@ app.get("/api/vehicles/:line", async (req, res) => {
 
       const tripId = vehicle.trip?.tripId;
 
-      // 🔴 behåller din filtrering (som du hade innan)
-      if (tripId && !tripIdSet.has(tripId)) continue;
+      // ✅ FIX: SL RT är INTE 100% GTFS static kompatibel
+      // därför släpper vi igenom RT vehicles utan strict filter
+      const isRelevant =
+        !tripId || tripIdSet.has(tripId);
+
+      if (!isRelevant) continue;
 
       const id =
         vehicle.vehicle?.id ||
@@ -192,12 +240,9 @@ app.get("/api/vehicles/:line", async (req, res) => {
         entity.id;
 
       const existing = vehiclesMap.get(id);
-
       const ts = vehicle.timestamp || 0;
 
-      if (existing && (existing.timestamp || 0) >= ts) {
-        continue;
-      }
+      if (existing && (existing.timestamp || 0) >= ts) continue;
 
       const trip = tripId
         ? data.tripMap.get(tripId)
@@ -209,11 +254,8 @@ app.get("/api/vehicles/:line", async (req, res) => {
         lon: vehicle.position.longitude,
         bearing: vehicle.position.bearing ?? 0,
         directionId: vehicle.trip?.directionId ?? null,
-
         routeType: data.routeType,
-
         timestamp: ts,
-
         destination:
           trip?.trip_headsign ||
           vehicle.trip?.tripHeadsign ||
@@ -222,9 +264,7 @@ app.get("/api/vehicles/:line", async (req, res) => {
       });
     }
 
-    const vehicles = Array.from(vehiclesMap.values());
-
-    res.json(vehicles);
+    res.json(Array.from(vehiclesMap.values()));
 
   } catch (e) {
     console.error("VEHICLE ERROR:", e);
@@ -237,7 +277,7 @@ app.get("/api/vehicles/:line", async (req, res) => {
 // =====================================================
 
 app.get("/api/test", (_, res) =>
-  res.json({ ok: true })
+  res.json({ ok: true, msg: "Backend fungerar 🎉" })
 );
 
 app.listen(PORT, () => {

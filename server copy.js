@@ -5,6 +5,20 @@ import fetch from "node-fetch";
 import protobuf from "protobufjs";
 import mysql from "mysql2/promise";
 
+async function initDB() {
+  return await mysql.createPool({
+    host: "auth-db504.hstgr.io",
+    user: "u160886294_erge08",
+    password: "KuliJul2025!",
+    database: "u160886294_sldata",
+    waitForConnections: true,
+    connectionLimit: 10
+  });
+}
+
+const db = await initDB();
+
+const tripVehicleIndex = new Map();
 const app = express();
 
 app.use(cors({
@@ -17,8 +31,11 @@ app.use(cors({
 app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
-const SL_API_KEY = process.env.SL_API_KEY;
+const SL_API_KEY = process.env.SL_API_KEY?.trim();
 
+if (!SL_API_KEY) {
+  throw new Error("SL_API_KEY saknas!");
+}
 if (!SL_API_KEY) console.warn("⚠️ SL_API_KEY är inte satt!");
 
 const GTFS_RT_URL =
@@ -27,14 +44,7 @@ const GTFS_RT_URL =
 // =====================================================
 // 🔌 MySQL
 // =====================================================
-const db = await mysql.createPool({
-  host: "auth-db504.hstgr.io",
-  user: "u160886294_erge08",
-  password: "KuliJul2025!", // ⚠️ lägg i env i prod
-  database: "u160886294_sldata",
-  waitForConnections: true,
-  connectionLimit: 10
-});
+
 
 console.log("✅ MySQL pool skapad");
 
@@ -53,16 +63,16 @@ let FeedMessage;
 // =====================================================
 let cachedFeed = null;
 let cachedAt = 0;
-const CACHE_TTL = 5000;
+const CACHE_TTL = 1500;
 
 // =====================================================
-// 🧠 Cache per linje (DB)
+// 🧠 Cache per linje
 // =====================================================
 const lineCache = new Map();
 const LINE_CACHE_TTL = 10 * 60 * 1000;
 
 // =====================================================
-// 🚍 Hämta GTFS-data för linje
+// 🚍 Hämta GTFS-data för linje (utan tider)
 // =====================================================
 async function loadGTFSforLine(line) {
   const cached = lineCache.get(line);
@@ -80,16 +90,24 @@ async function loadGTFSforLine(line) {
     "SELECT trip_id, trip_headsign, direction_id, shape_id FROM trips WHERE route_id = ?",
     [route.route_id]
   );
+  const tripMap = new Map(
+    trips.map(t => [t.trip_id, t])
+  );
+
   if (!trips.length) return null;
 
   const tripIds = trips.map(t => t.trip_id);
 
-  // stops + stop_times (inkl tider)
-  const [stopTimes] = await db.query(
+  // stop_times + stops (ENDST minimal version)
+  const [stopRows] = await db.query(
     `
-    SELECT st.trip_id, st.stop_sequence,
-           s.stop_id, s.stop_name, s.stop_lat, s.stop_lon,
-           st.arrival_time, st.departure_time
+    SELECT
+      st.trip_id,
+      st.stop_sequence,
+      s.stop_id,
+      s.stop_name,
+      s.stop_lat,
+      s.stop_lon
     FROM stop_times st
     JOIN stops s ON s.stop_id = st.stop_id
     WHERE st.trip_id IN (?)
@@ -98,35 +116,35 @@ async function loadGTFSforLine(line) {
     [tripIds]
   );
 
-  // index stop_times per trip
   const stopTimesByTripId = new Map();
-  for (const r of stopTimes) {
+  for (const r of stopRows) {
     if (!stopTimesByTripId.has(r.trip_id)) {
       stopTimesByTripId.set(r.trip_id, []);
     }
     stopTimesByTripId.get(r.trip_id).push(r);
   }
 
-  // shape
-  const shapeId = trips[0].shape_id;
-  const [shapeRows] = await db.query(
-    `
-    SELECT shape_pt_lat, shape_pt_lon
-    FROM shapes
-    WHERE shape_id = ?
-    ORDER BY shape_pt_sequence
-    `,
-    [shapeId]
-  );
+  // shape (snabb cache-version)
+const shapeId = trips[0].shape_id;
+
+const [[shapeRow]] = await db.query(
+  "SELECT shape_json FROM shape_cache WHERE shape_id = ?",
+  [shapeId]
+);
+
+if (!shapeRow) return null;
+
+const shape = shapeRow?.shape_json
+  ? JSON.parse(shapeRow.shape_json)
+  : [];
+
 
   const data = {
     routeType: route.route_type,
     trips,
     stopTimesByTripId,
-    shape: shapeRows.map(r => [
-      Number(r.shape_pt_lat),
-      Number(r.shape_pt_lon)
-    ])
+    shape,
+    tripMap
   };
 
   lineCache.set(line, { data, ts: Date.now() });
@@ -140,6 +158,8 @@ app.get("/api/line/:line", async (req, res) => {
   try {
     const line = req.params.line.trim();
     const data = await loadGTFSforLine(line);
+
+    
     if (!data) return res.status(404).json({ error: "Ingen linje" });
 
     const stopsOut = [];
@@ -152,9 +172,7 @@ app.get("/api/line/:line", async (req, res) => {
         stopsOut.push({
           lat: Number(s.stop_lat),
           lon: Number(s.stop_lon),
-          name: s.stop_name,
-          arrival_time: s.arrival_time,     // ✅ Lägg till
-          departure_time: s.departure_time  // ✅ Lägg till
+          name: s.stop_name
         });
       }
     }
@@ -182,7 +200,7 @@ app.get("/api/vehicles/:line", async (req, res) => {
 
     const tripIds = data.trips.map(t => t.trip_id);
 
-    // destination per trip
+    // destination per trip (sista hållplatsen)
     const lastStopNameByTripId = new Map();
     for (const [tripId, sts] of data.stopTimesByTripId) {
       const last = sts[sts.length - 1];
@@ -191,37 +209,57 @@ app.get("/api/vehicles/:line", async (req, res) => {
 
     // GTFS-RT cache
     const now = Date.now();
-    if (!cachedFeed || now - cachedAt > CACHE_TTL) {
-      const r = await fetch(GTFS_RT_URL, {
-        headers: { Accept: "application/x-protobuf" }
-      });
-      const buffer = await r.arrayBuffer();
-      cachedFeed = FeedMessage.decode(new Uint8Array(buffer));
-      cachedAt = now;
+if (!cachedFeed || now - cachedAt > CACHE_TTL) {
+  console.log("🔄 Hämtar GTFS-RT från Samtrafiken...");
+
+  const r = await fetch(GTFS_RT_URL, {
+    headers: {
+      Accept: "application/x-protobuf",
+      "Accept-Encoding": "gzip"
     }
+  });
 
-    const vehicles = cachedFeed.entity
-      .filter(e =>
-        e.vehicle?.position &&
-        tripIds.includes(e.vehicle.trip?.tripId)
-      )
-      .map(e => {
-        const tripId = e.vehicle.trip.tripId;
-        const trip = data.trips.find(t => t.trip_id === tripId);
+  if (!r.ok) {
+    const text = await r.text();
+    console.error("❌ GTFS fetch failed:", r.status, text);
+    throw new Error(`GTFS error ${r.status}`);
+  }
 
-        return {
-          id: e.vehicle.vehicle?.id || e.id,
-          lat: e.vehicle.position.latitude,
-          lon: e.vehicle.position.longitude,
-          bearing: e.vehicle.position.bearing ?? 0,
-          directionId: e.vehicle.trip.directionId ?? null,
-          routeType: data.routeType,
-          destination:
-            trip?.trip_headsign ||
-            lastStopNameByTripId.get(tripId) ||
-            "Okänd destination"
-        };
-      });
+  const buffer = await r.arrayBuffer();
+
+  console.log("📦 Buffer size:", buffer.byteLength);
+
+  cachedFeed = FeedMessage.decode(new Uint8Array(buffer));
+  cachedAt = now;
+}
+    // skapa snabb lookup
+const tripIdSet = new Set(data.trips.map(t => t.trip_id));
+
+const vehicles = [];
+
+for (const entity of cachedFeed.entity) {
+
+  const vehicle = entity.vehicle;
+  if (!vehicle?.position) continue;
+
+  const tripId = vehicle.trip?.tripId;
+  if (!tripIdSet.has(tripId)) continue;
+
+  const trip = data.tripMap.get(tripId);
+
+  vehicles.push({
+    id: vehicle.vehicle?.id || entity.id,
+    lat: vehicle.position.latitude,
+    lon: vehicle.position.longitude,
+    bearing: vehicle.position.bearing ?? 0,
+    directionId: vehicle.trip.directionId ?? null,
+    routeType: data.routeType,
+    destination:
+      trip?.trip_headsign ||
+      lastStopNameByTripId.get(tripId) ||
+      "Okänd destination"
+  });
+}
 
     res.json(vehicles);
 
@@ -235,9 +273,13 @@ app.get("/api/vehicles/:line", async (req, res) => {
 // 🔎 Test
 // =====================================================
 app.get("/api/test", (_, res) =>
-  res.json({ ok: true, msg: "Backend fungerar 🎉" })
+  res.json({ ok: true, msg: "Backend fungerar  🎉" })
 );
 
-app.listen(PORT, () =>
-  console.log(`🚍 Backend kör på port ${PORT}`)
-);
+
+app.listen(PORT, () => {
+  console.log(`🚍 Backend kör på port ${PORT}`);
+
+  // Värm upp MySQL-connection
+  db.query("SELECT 1").catch(console.error);
+});

@@ -68,6 +68,25 @@ header button:disabled {
     width: 100%;
   }
 }
+
+#credit {
+  position: fixed;
+  bottom: 8px;
+  right: 8px;
+  font-size: 0.75rem;
+  color: #333;
+  background: rgba(255,255,255,0.9);
+  padding: 4px 8px;
+  border-radius: 6px;
+  z-index: 1000;
+  box-shadow: 0 0 4px rgba(0,0,0,0.2);
+}
+
+#credit a {
+  color: #0d6efd;
+  text-decoration: none;
+}
+
 </style>
 </head>
 
@@ -262,5 +281,9 @@ document.getElementById("lineForm").addEventListener("submit", async (e) => {
 document.getElementById("lineInput").focus();
 </script>
 
+
+<div id="credit">
+  Idé och konstruktion <a href="mailto:erik@gerring.com?subject=SLs fordon i realtid">Erik Gerring</a>
+</div>
 </body>
 </html>

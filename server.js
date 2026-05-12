@@ -170,7 +170,7 @@ app.get("/api/vehicles/:line", async (req, res) => {
       cachedAt = now;
     }
 
- const vehiclesMap = new Map();
+const vehiclesMap = new Map();
 
 for (const entity of cachedFeed.entity) {
 
@@ -179,18 +179,18 @@ for (const entity of cachedFeed.entity) {
 
   const id =
     vehicle.vehicle?.id ||
+    vehicle.trip?.tripId ||
     entity.id;
 
-  const tripId = vehicle.trip?.tripId;
+  const existing = vehiclesMap.get(id);
 
-  // dedupe per vehicle id (VIKTIG FIX)
-  const prev = vehiclesMap.get(id);
+  const ts = vehicle.timestamp || 0;
 
-  if (prev) {
-    const prevTime = prev.timestamp || 0;
-    const newTime = vehicle.timestamp || 0;
-    if (newTime <= prevTime) continue;
+  if (existing && (existing.timestamp || 0) >= ts) {
+    continue;
   }
+
+  const tripId = vehicle.trip?.tripId;
 
   const trip = tripId
     ? data.tripMap.get(tripId)
@@ -205,7 +205,7 @@ for (const entity of cachedFeed.entity) {
 
     routeType: data.routeType,
 
-    timestamp: vehicle.timestamp || 0,
+    timestamp: ts,
 
     destination:
       trip?.trip_headsign ||
@@ -214,6 +214,8 @@ for (const entity of cachedFeed.entity) {
       "Okänd destination"
   });
 }
+
+const vehicles = [...vehiclesMap.values()];
 
 const vehicles = Array.from(vehiclesMap.values());
     res.json(vehicles);

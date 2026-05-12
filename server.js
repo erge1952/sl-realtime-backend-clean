@@ -170,41 +170,52 @@ app.get("/api/vehicles/:line", async (req, res) => {
       cachedAt = now;
     }
 
-    const vehicles = [];
+ const vehiclesMap = new Map();
 
-    for (const entity of cachedFeed.entity) {
+for (const entity of cachedFeed.entity) {
 
-      const vehicle = entity.vehicle;
-      if (!vehicle?.position) continue;
+  const vehicle = entity.vehicle;
+  if (!vehicle?.position) continue;
 
-      const tripId = vehicle.trip?.tripId;
-      const routeId = vehicle.trip?.routeId;
+  const id =
+    vehicle.vehicle?.id ||
+    entity.id;
 
-      const trip = tripId
-        ? data.tripMap.get(tripId)
-        : null;
+  const tripId = vehicle.trip?.tripId;
 
-      vehicles.push({
-        id: vehicle.vehicle?.id || entity.id,
-        lat: vehicle.position.latitude,
-        lon: vehicle.position.longitude,
-        bearing: vehicle.position.bearing ?? 0,
-        directionId: vehicle.trip?.directionId ?? null,
+  // dedupe per vehicle id (VIKTIG FIX)
+  const prev = vehiclesMap.get(id);
 
-        // 🔧 viktigt: vi filtrerar inte bort fordon längre
-        tripId,
-        routeId,
+  if (prev) {
+    const prevTime = prev.timestamp || 0;
+    const newTime = vehicle.timestamp || 0;
+    if (newTime <= prevTime) continue;
+  }
 
-        routeType: data.routeType,
+  const trip = tripId
+    ? data.tripMap.get(tripId)
+    : null;
 
-        destination:
-          trip?.trip_headsign ||
-          vehicle.trip?.tripHeadsign ||
-          lastStopNameByTripId.get(tripId) ||
-          "Okänd destination"
-      });
-    }
+  vehiclesMap.set(id, {
+    id,
+    lat: vehicle.position.latitude,
+    lon: vehicle.position.longitude,
+    bearing: vehicle.position.bearing ?? 0,
+    directionId: vehicle.trip?.directionId ?? null,
 
+    routeType: data.routeType,
+
+    timestamp: vehicle.timestamp || 0,
+
+    destination:
+      trip?.trip_headsign ||
+      lastStopNameByTripId.get(tripId) ||
+      vehicle.trip?.tripHeadsign ||
+      "Okänd destination"
+  });
+}
+
+const vehicles = Array.from(vehiclesMap.values());
     res.json(vehicles);
 
   } catch (e) {

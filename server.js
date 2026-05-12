@@ -44,6 +44,7 @@ const GTFS_RT_URL =
 // =====================================================
 
 let FeedMessage;
+
 {
   const root = await protobuf.load("gtfs-realtime.proto");
   FeedMessage = root.lookupType("transit_realtime.FeedMessage");
@@ -62,17 +63,19 @@ const LINE_CACHE_TTL = 10 * 60 * 1000;
 
 // =====================================================
 // LOAD GTFS FOR LINE
-// (oförändrad i din kod)
 // =====================================================
 
 async function loadGTFSforLine(line) {
   const cached = lineCache.get(line);
-  if (cached && Date.now() - cached.ts < LINE_CACHE_TTL) return cached.data;
+  if (cached && Date.now() - cached.ts < LINE_CACHE_TTL) {
+    return cached.data;
+  }
 
   const [[route]] = await db.query(
     "SELECT route_id, route_type FROM routes WHERE route_short_name = ?",
     [line]
   );
+
   if (!route) return null;
 
   const [trips] = await db.query(
@@ -83,7 +86,6 @@ async function loadGTFSforLine(line) {
   if (!trips.length) return null;
 
   const tripMap = new Map(trips.map(t => [t.trip_id, t]));
-
   const tripIds = trips.map(t => t.trip_id);
 
   const [stopRows] = await db.query(
@@ -137,7 +139,7 @@ async function loadGTFSforLine(line) {
 }
 
 // =====================================================
-// VEHICLES (FIXED VERSION)
+// VEHICLES
 // =====================================================
 
 app.get("/api/vehicles/:line", async (req, res) => {
@@ -170,53 +172,59 @@ app.get("/api/vehicles/:line", async (req, res) => {
       cachedAt = now;
     }
 
-const vehiclesMap = new Map();
+    const tripIdSet = new Set(data.trips.map(t => t.trip_id));
 
-for (const entity of cachedFeed.entity) {
+    const vehiclesMap = new Map();
 
-  const vehicle = entity.vehicle;
-  if (!vehicle?.position) continue;
+    for (const entity of cachedFeed.entity) {
 
-  const id =
-    vehicle.vehicle?.id ||
-    vehicle.trip?.tripId ||
-    entity.id;
+      const vehicle = entity.vehicle;
+      if (!vehicle?.position) continue;
 
-  const existing = vehiclesMap.get(id);
+      const tripId = vehicle.trip?.tripId;
 
-  const ts = vehicle.timestamp || 0;
+      // 🔴 behåller din filtrering (som du hade innan)
+      if (tripId && !tripIdSet.has(tripId)) continue;
 
-  if (existing && (existing.timestamp || 0) >= ts) {
-    continue;
-  }
+      const id =
+        vehicle.vehicle?.id ||
+        tripId ||
+        entity.id;
 
-  const tripId = vehicle.trip?.tripId;
+      const existing = vehiclesMap.get(id);
 
-  const trip = tripId
-    ? data.tripMap.get(tripId)
-    : null;
+      const ts = vehicle.timestamp || 0;
 
-  vehiclesMap.set(id, {
-    id,
-    lat: vehicle.position.latitude,
-    lon: vehicle.position.longitude,
-    bearing: vehicle.position.bearing ?? 0,
-    directionId: vehicle.trip?.directionId ?? null,
-    routeType: data.routeType,
-    timestamp: ts,
+      if (existing && (existing.timestamp || 0) >= ts) {
+        continue;
+      }
 
-    destination:
-      trip?.trip_headsign ||
-      lastStopNameByTripId.get(tripId) ||
-      vehicle.trip?.tripHeadsign ||
-      "Okänd destination"
-  });
-}
+      const trip = tripId
+        ? data.tripMap.get(tripId)
+        : null;
 
-const vehicles = Array.from(vehiclesMap.values());
+      vehiclesMap.set(id, {
+        id,
+        lat: vehicle.position.latitude,
+        lon: vehicle.position.longitude,
+        bearing: vehicle.position.bearing ?? 0,
+        directionId: vehicle.trip?.directionId ?? null,
 
-res.json(vehicles);
+        routeType: data.routeType,
 
+        timestamp: ts,
+
+        destination:
+          trip?.trip_headsign ||
+          vehicle.trip?.tripHeadsign ||
+          lastStopNameByTripId.get(tripId) ||
+          "Okänd destination"
+      });
+    }
+
+    const vehicles = Array.from(vehiclesMap.values());
+
+    res.json(vehicles);
 
   } catch (e) {
     console.error("VEHICLE ERROR:", e);

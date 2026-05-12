@@ -30,7 +30,7 @@ app.use(cors({
 
 app.use(express.json());
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 const SL_API_KEY = process.env.SL_API_KEY?.trim();
 
 if (!SL_API_KEY) {
@@ -231,30 +231,66 @@ if (!cachedFeed || now - cachedAt > CACHE_TTL) {
   cachedAt = now;
 }
     // skapa snabb lookup
-const tripIdSet = new Set(data.trips.map(t => t.trip_id));
-
 const vehicles = [];
 
 for (const entity of cachedFeed.entity) {
 
   const vehicle = entity.vehicle;
+
   if (!vehicle?.position) continue;
 
-  const tripId = vehicle.trip?.tripId;
-  if (!tripIdSet.has(tripId)) continue;
+  // MATCHA PÅ routeId ISTÄLLET
+  const realtimeRouteId = vehicle.trip?.routeId;
 
+  // Hämta route_id från GTFS-static
+  const staticRouteId = data.trips[0]?.route_id;
+
+  if (realtimeRouteId !== staticRouteId) {
+    continue;
+  }
+
+  const tripId = vehicle.trip?.tripId;
+
+  // OPTIONAL lookup
   const trip = data.tripMap.get(tripId);
 
   vehicles.push({
-    id: vehicle.vehicle?.id || entity.id,
-    lat: vehicle.position.latitude,
-    lon: vehicle.position.longitude,
-    bearing: vehicle.position.bearing ?? 0,
-    directionId: vehicle.trip.directionId ?? null,
-    routeType: data.routeType,
+
+    id:
+      vehicle.vehicle?.id ||
+      entity.id,
+
+    lat:
+      vehicle.position.latitude,
+
+    lon:
+      vehicle.position.longitude,
+
+    bearing:
+      vehicle.position.bearing ?? 0,
+
+    speed:
+      vehicle.position.speed ?? null,
+
+    directionId:
+      vehicle.trip?.directionId ?? null,
+
+    tripId,
+
+    routeId:
+      realtimeRouteId,
+
+    routeType:
+      data.routeType,
+
     destination:
+
       trip?.trip_headsign ||
+
+      vehicle.trip?.tripHeadsign ||
+
       lastStopNameByTripId.get(tripId) ||
+
       "Okänd destination"
   });
 }

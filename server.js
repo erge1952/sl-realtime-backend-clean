@@ -202,9 +202,7 @@ for (const entity of cachedFeed.entity) {
     lon: vehicle.position.longitude,
     bearing: vehicle.position.bearing ?? 0,
     directionId: vehicle.trip?.directionId ?? null,
-
     routeType: data.routeType,
-
     timestamp: ts,
 
     destination:
@@ -215,10 +213,10 @@ for (const entity of cachedFeed.entity) {
   });
 }
 
-const vehicles = [...vehiclesMap.values()];
-
 const vehicles = Array.from(vehiclesMap.values());
-    res.json(vehicles);
+
+res.json(vehicles);
+
 
   } catch (e) {
     console.error("VEHICLE ERROR:", e);

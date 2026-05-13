@@ -334,7 +334,7 @@ app.get("/api/vehicles/:line", async (req, res) => {
         seenTripIds.add(tripId);
       }
 
-      if (!tripIdSet.has(tripId)) continue;
+       //if (!tripIdSet.has(tripId)) continue;
 
       const trip = data.tripMap.get(tripId);
 

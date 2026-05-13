@@ -293,10 +293,11 @@ app.get("/api/vehicles/:line", async (req, res) => {
       // DEBUG: spara protobuf-fil
       // =====================================================
 
-      fs.writeFileSync(
-        `debug-${line}-${Date.now()}.pb`,
-        Buffer.from(buffer)
-      );
+      //fs.writeFileSync(
+      //  `debug-${line}-${Date.now()}.pb`,
+      //  Buffer.from(buffer)
+      
+	  // );
 
       console.log("📦 Buffer size:", buffer.byteLength);
 

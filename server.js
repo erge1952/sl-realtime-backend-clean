@@ -252,25 +252,7 @@ cachedAt = now;
 
 
 
-  // =====================================================
-// SAVE PROTOBUF FOR TRAFIKLAB
-// =====================================================
 
-const pbPath =
-`/tmp/vehiclepositions-${Date.now()}.pb`;
-
-fs.writeFileSync(
-pbPath,
-Buffer.from(buffer)
-);
-
-console.log("💾 Saved protobuf:", pbPath);
-
-// =====================================================
-
-
-  cachedFeed = FeedMessage.decode(new Uint8Array(buffer));
-  cachedAt = now;
 }
     // skapa snabb lookup
 const tripIdSet = new Set(data.trips.map(t => t.trip_id));

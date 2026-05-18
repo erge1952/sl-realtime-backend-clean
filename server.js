@@ -4,6 +4,7 @@ import cors from "cors";
 import fetch from "node-fetch";
 import protobuf from "protobufjs";
 import mysql from "mysql2/promise";
+import fs from "fs";
 
 async function initDB() {
   return await mysql.createPool({
@@ -226,6 +227,24 @@ if (!cachedFeed || now - cachedAt > CACHE_TTL) {
   const buffer = await r.arrayBuffer();
 
   console.log("📦 Buffer size:", buffer.byteLength);
+  
+
+  // =====================================================
+// SAVE PROTOBUF FOR TRAFIKLAB
+// =====================================================
+
+const pbPath =
+`/tmp/vehiclepositions-${Date.now()}.pb`;
+
+fs.writeFileSync(
+pbPath,
+Buffer.from(buffer)
+);
+
+console.log("💾 Saved protobuf:", pbPath);
+
+// =====================================================
+
 
   cachedFeed = FeedMessage.decode(new Uint8Array(buffer));
   cachedAt = now;
@@ -273,6 +292,25 @@ for (const entity of cachedFeed.entity) {
 app.get("/api/test", (_, res) =>
   res.json({ ok: true, msg: "Backend fungerar  🎉" })
 );
+
+// för data till Trafilab
+app.get("/api/debug/pb", (_, res) => {
+
+  const files = fs.readdirSync("/tmp")
+    .filter(f => f.endsWith(".pb"))
+    .sort()
+    .reverse();
+
+  if (!files.length) {
+    return res.status(404).send("Ingen protobuf-fil");
+  }
+
+  const latest = `/tmp/${files[0]}`;
+
+  res.download(latest);
+});
+
+// slut för data till Trafiklab
 
 app.listen(PORT, () => {
   console.log(`🚍 Backend kör på port ${PORT}`);

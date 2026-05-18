@@ -227,7 +227,30 @@ if (!cachedFeed || now - cachedAt > CACHE_TTL) {
   const buffer = await r.arrayBuffer();
 
   console.log("📦 Buffer size:", buffer.byteLength);
+ 
   
+// =====================================================
+// SAVE PROTOBUF FOR TRAFIKLAB
+// =====================================================
+
+const pbPath =
+  `/tmp/vehiclepositions-${Date.now()}.pb`;
+
+fs.writeFileSync(
+  pbPath,
+  Buffer.from(buffer)
+);
+
+console.log("💾 Saved protobuf:", pbPath);
+
+// =====================================================
+
+cachedFeed = FeedMessage.decode(new Uint8Array(buffer));
+cachedAt = now;
+
+
+
+
 
   // =====================================================
 // SAVE PROTOBUF FOR TRAFIKLAB
@@ -293,7 +316,7 @@ app.get("/api/test", (_, res) =>
   res.json({ ok: true, msg: "Backend fungerar  🎉" })
 );
 
-// för data till Trafilab
+// för data till Trafiklab
 app.get("/api/debug/pb", (_, res) => {
 
   const files = fs.readdirSync("/tmp")

@@ -79,10 +79,23 @@ async function loadGTFSforLine(line) {
   if (cached && Date.now() - cached.ts < LINE_CACHE_TTL) return cached.data;
 
   // route
-  const [[route]] = await db.query(
-    "SELECT route_id, route_type FROM routes WHERE route_short_name = ?",
-    [line]
+  const [routesFound] = await db.query(
+    `
+    SELECT route_id, route_short_name, route_long_name
+    FROM routes
+    WHERE route_short_name LIKE ?
+    LIMIT 20
+    `,
+    [`%${line}%`]
   );
+  
+  console.log("DEBUG ROUTES:", routesFound);
+  
+  const route = routesFound[0];
+ 
+ 
+ 
+ 
   if (!route) return null;
 
   // trips

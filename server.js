@@ -4,6 +4,7 @@ import cors from "cors";
 import fetch from "node-fetch";
 import protobuf from "protobufjs";
 import mysql from "mysql2/promise";
+import fs from "fs";
 
 async function initDB() {
   return await mysql.createPool({

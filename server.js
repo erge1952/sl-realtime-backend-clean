@@ -287,21 +287,37 @@ app.get("/api/test", (_, res) =>
 
 
 app.get("/api/debug/pb", (_, res) => {
+  try {
 
-  const files = fs.readdirSync("/tmp")
-    .filter(f => f.endsWith(".pb"))
-    .sort()
-    .reverse();
+    const tmpDir = "/tmp";
 
-  if (!files.length) {
-    return res.status(404).send("Ingen protobuf-fil");
+    if (!fs.existsSync(tmpDir)) {
+      return res.status(404).send("tmp finns inte");
+    }
+
+    const files = fs.readdirSync(tmpDir)
+      .filter(f => f.endsWith(".pb"))
+      .sort()
+      .reverse();
+
+    console.log("PB FILES:", files);
+
+    if (!files.length) {
+      return res.status(404).send("Ingen protobuf-fil hittades");
+    }
+
+    const latest = `${tmpDir}/${files[0]}`;
+
+    console.log("📦 Sending protobuf:", latest);
+
+    res.download(latest);
+
+  } catch (e) {
+
+    console.error("PB DOWNLOAD ERROR:", e);
+
+    res.status(500).send(e.message);
   }
-
-  const latest = `/tmp/${files[0]}`;
-
-  console.log("📦 Downloading protobuf:", latest);
-
-  res.download(latest);
 });
 
 app.listen(PORT, () => {

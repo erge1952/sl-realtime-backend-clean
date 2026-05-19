@@ -94,8 +94,6 @@ async function loadGTFSforLine(line) {
   const route = routesFound[0];
  
  
- 
- 
   if (!route) return null;
 
   // trips
@@ -286,6 +284,25 @@ for (const entity of cachedFeed.entity) {
 app.get("/api/test", (_, res) =>
   res.json({ ok: true, msg: "Backend fungerar  🎉" })
 );
+
+
+app.get("/api/debug/pb", (_, res) => {
+
+  const files = fs.readdirSync("/tmp")
+    .filter(f => f.endsWith(".pb"))
+    .sort()
+    .reverse();
+
+  if (!files.length) {
+    return res.status(404).send("Ingen protobuf-fil");
+  }
+
+  const latest = `/tmp/${files[0]}`;
+
+  console.log("📦 Downloading protobuf:", latest);
+
+  res.download(latest);
+});
 
 app.listen(PORT, () => {
   console.log(`🚍 Backend kör på port ${PORT}`);

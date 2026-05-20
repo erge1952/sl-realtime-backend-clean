@@ -204,103 +204,144 @@ app.get("/api/line/:line", async (req, res) => {
 // =====================================================
 app.get("/api/vehicles/:line", async (req, res) => {
   try {
+
     const line = req.params.line.trim();
     const data = await loadGTFSforLine(line);
-    if (!data) return res.json([]);
 
-    const tripIds = data.trips.map(t => t.trip_id);
+    if (!data) {
+      return res.json([]);
+    }
 
-    // destination per trip (sista hållplatsen)
+    // destination per trip
     const lastStopNameByTripId = new Map();
+
     for (const [tripId, sts] of data.stopTimesByTripId) {
+
       const last = sts[sts.length - 1];
-      lastStopNameByTripId.set(tripId, last.stop_name);
+
+      lastStopNameByTripId.set(
+        tripId,
+        last.stop_name
+      );
     }
 
-    // GTFS-RT cache
+    // =====================================================
+    // GTFS-RT CACHE
+    // =====================================================
+
     const now = Date.now();
-if (!cachedFeed || now - cachedAt > CACHE_TTL) {
-  console.log("🔄 Hämtar GTFS-RT från Samtrafiken...");
 
-  const r = await fetch(GTFS_RT_URL, {
-    headers: {
-      Accept: "application/x-protobuf",
-      "Accept-Encoding": "gzip"
+    if (!cachedFeed || now - cachedAt > CACHE_TTL) {
+
+      console.log("🔄 Hämtar GTFS-RT från Samtrafiken...");
+
+      const r = await fetch(GTFS_RT_URL, {
+        headers: {
+          Accept: "application/x-protobuf",
+          "Accept-Encoding": "gzip"
+        }
+      });
+
+      if (!r.ok) {
+
+        const text = await r.text();
+
+        console.error(
+          "❌ GTFS fetch failed:",
+          r.status,
+          text
+        );
+
+        throw new Error(`GTFS error ${r.status}`);
+      }
+
+      const buffer = await r.arrayBuffer();
+
+      console.log(
+        "📦 Buffer size:",
+        buffer.byteLength
+      );
+
+      // =====================================================
+      // SAVE PROTOBUF
+      // =====================================================
+
+      try {
+
+        const pbPath = "/tmp/latest.pb";
+
+        fs.writeFileSync(
+          pbPath,
+          Buffer.from(buffer)
+        );
+
+        console.log(
+          "💾 Saved protobuf:",
+          pbPath
+        );
+
+      } catch (e) {
+
+        console.error(
+          "PB SAVE ERROR:",
+          e
+        );
+      }
+
+      // =====================================================
+
+      cachedFeed = FeedMessage.decode(
+        new Uint8Array(buffer)
+      );
+
+      cachedAt = now;
     }
-  });
 
-  if (!r.ok) {
-    const text = await r.text();
-    console.error("❌ GTFS fetch failed:", r.status, text);
-    throw new Error(`GTFS error ${r.status}`);
-  }
+    // =====================================================
+    // FILTER VEHICLES
+    // =====================================================
 
-  const buffer = await r.arrayBuffer();
-
-  console.log("📦 Buffer size:", buffer.byteLength);
-  
-  // =====================================================
-  // SAVE PROTOBUF FOR TRAFIKLAB
-  // =====================================================
-  
-  try {
-  
-    const pbPath =
-      `/tmp/latest.pb`;
-  
-    fs.writeFileSync(
-      pbPath,
-      Buffer.from(buffer)
+    const tripIdSet = new Set(
+      data.trips.map(t => t.trip_id)
     );
-  
-    console.log("💾 Saved protobuf:", pbPath);
-  
-  } catch (e) {
-  
-    console.error("PB SAVE ERROR:", e);
-  }
-  
-  // =====================================================
-  
-  cachedFeed = FeedMessage.decode(new Uint8Array(buffer));
-  cachedAt = now;
 
+    const vehicles = [];
 
+    for (const entity of cachedFeed.entity) {
 
-// skapa snabb lookup
-const tripIdSet = new Set(data.trips.map(t => t.trip_id));
+      const vehicle = entity.vehicle;
 
-const vehicles = [];
+      if (!vehicle?.position) continue;
 
-for (const entity of cachedFeed.entity) {
+      const tripId = vehicle.trip?.tripId;
 
-  const vehicle = entity.vehicle;
-  if (!vehicle?.position) continue;
+      if (!tripIdSet.has(tripId)) continue;
 
-  const tripId = vehicle.trip?.tripId;
-  if (!tripIdSet.has(tripId)) continue;
+      const trip = data.tripMap.get(tripId);
 
-  const trip = data.tripMap.get(tripId);
-
-  vehicles.push({
-    id: vehicle.vehicle?.id || entity.id,
-    lat: vehicle.position.latitude,
-    lon: vehicle.position.longitude,
-    bearing: vehicle.position.bearing ?? 0,
-    directionId: vehicle.trip.directionId ?? null,
-    routeType: data.routeType,
-    destination:
-      trip?.trip_headsign ||
-      lastStopNameByTripId.get(tripId) ||
-      "Okänd destination"
-  });
-}
+      vehicles.push({
+        id: vehicle.vehicle?.id || entity.id,
+        lat: vehicle.position.latitude,
+        lon: vehicle.position.longitude,
+        bearing: vehicle.position.bearing ?? 0,
+        directionId: vehicle.trip.directionId ?? null,
+        routeType: data.routeType,
+        destination:
+          trip?.trip_headsign ||
+          lastStopNameByTripId.get(tripId) ||
+          "Okänd destination"
+      });
+    }
 
     res.json(vehicles);
 
   } catch (e) {
+
     console.error("VEHICLE ERROR:", e);
-    res.status(500).json({ error: "Kunde inte hämta fordon" });
+
+    res.status(500).json({
+      error: "Kunde inte hämta fordon"
+    });
   }
 });
 

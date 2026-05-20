@@ -352,6 +352,52 @@ app.get("/api/test", (_, res) =>
   res.json({ ok: true, msg: "Backend fungerar  🎉" })
 );
 
+// =====================================================
+// FORCE DOWNLOAD REALTIME PB
+// =====================================================
+
+app.get("/api/debug/fetchpb", async (_, res) => {
+
+  try {
+
+    console.log("🔄 Hämtar protobuf direkt...");
+
+    const r = await fetch(GTFS_RT_URL, {
+      headers: {
+        Accept: "application/x-protobuf",
+        "Accept-Encoding": "gzip"
+      }
+    });
+
+    if (!r.ok) {
+
+      const text = await r.text();
+
+      console.error("GTFS FETCH ERROR:", text);
+
+      return res.status(500).send(text);
+    }
+
+    const buffer = await r.arrayBuffer();
+
+    const pbPath = "/tmp/latest.pb";
+
+    fs.writeFileSync(
+      pbPath,
+      Buffer.from(buffer)
+    );
+
+    console.log("💾 Protobuf sparad:", pbPath);
+
+    res.download(pbPath);
+
+  } catch (e) {
+
+    console.error("FETCH PB ERROR:", e);
+
+    res.status(500).send(e.message);
+  }
+});
 
 app.get("/api/debug/pb", (_, res) => {
   try {

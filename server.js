@@ -238,11 +238,36 @@ if (!cachedFeed || now - cachedAt > CACHE_TTL) {
   const buffer = await r.arrayBuffer();
 
   console.log("📦 Buffer size:", buffer.byteLength);
-
+  
+  // =====================================================
+  // SAVE PROTOBUF FOR TRAFIKLAB
+  // =====================================================
+  
+  try {
+  
+    const pbPath =
+      `/tmp/latest.pb`;
+  
+    fs.writeFileSync(
+      pbPath,
+      Buffer.from(buffer)
+    );
+  
+    console.log("💾 Saved protobuf:", pbPath);
+  
+  } catch (e) {
+  
+    console.error("PB SAVE ERROR:", e);
+  }
+  
+  // =====================================================
+  
   cachedFeed = FeedMessage.decode(new Uint8Array(buffer));
   cachedAt = now;
-}
-    // skapa snabb lookup
+
+
+
+// skapa snabb lookup
 const tripIdSet = new Set(data.trips.map(t => t.trip_id));
 
 const vehicles = [];

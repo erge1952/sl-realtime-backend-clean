@@ -320,6 +320,8 @@ app.get("/api/vehicles/:line", async (req, res) => {
 
       if (!vehicle?.position) continue;
 
+      console.log("REALTIME TRIP:", vehicle.trip);
+
       const tripId = vehicle.trip?.tripId;
 
       if (!tripIdSet.has(tripId)) continue;

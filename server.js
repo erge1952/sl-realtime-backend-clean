@@ -198,6 +198,27 @@ if (!shape.length) {
   );
 }
 
+
+// =====================================================
+// RETURN DATA
+// =====================================================
+
+const data = {
+  routeType: route.route_type,
+  trips,
+  stopTimesByTripId,
+  shape,
+  tripMap
+};
+
+lineCache.set(line, {
+  data,
+  ts: Date.now()
+});
+
+return data;
+}
+
 // =====================================================
 // 🗺 /api/line/:line
 // =====================================================

@@ -82,12 +82,16 @@ async function loadGTFSforLine(line) {
   // route
   const [routesFound] = await db.query(
     `
-    SELECT route_id, route_short_name, route_long_name
+    SELECT
+      route_id,
+      route_short_name,
+      route_long_name,
+      route_type
     FROM routes
-    WHERE route_short_name LIKE ?
-    LIMIT 20
+    WHERE route_short_name = ?
+    LIMIT 1
     `,
-    [`%${line}%`]
+    [line]
   );
   
   console.log("DEBUG ROUTES:", routesFound);

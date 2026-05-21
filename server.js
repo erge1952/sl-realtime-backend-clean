@@ -139,42 +139,53 @@ async function loadGTFSforLine(line) {
     stopTimesByTripId.get(r.trip_id).push(r);
   }
 
-  // shape (snabb cache-version)
+  // =====================================================
+  // SHAPE
+  // =====================================================
+
   let shape = [];
 
   const validTrip = trips.find(
     t => t.shape_id && t.shape_id !== "0"
   );
-  
+
   if (!validTrip) {
+
     console.log("NO VALID SHAPE FOR LINE:", line);
-    return null;
-  }
-  
-  const shapeId = validTrip.shape_id;
 
+  } else {
 
-  if (shapeId && shapeId !== "0") {
-  
+    const shapeId = validTrip.shape_id;
+
+    console.log("USING SHAPE:", shapeId);
+
     const [[shapeRow]] = await db.query(
       "SELECT shape_json FROM shape_cache WHERE shape_id = ?",
       [shapeId]
     );
-    
-    if (!shapeRow) {
-    
-      console.log("NO SHAPE FOR:", shapeId);
-    
-      return {
-        routeType: route.route_type,
-        trips,
-        stopTimesByTripId,
-        shape: [],
-        tripMap
-      };
-    }
 
+    if (!shapeRow) {
+
+      console.log("NO SHAPE FOUND IN CACHE:", shapeId);
+
+    } else {
+
+      try {
+
+        shape = JSON.parse(shapeRow.shape_json);
+
+        console.log("✅ SHAPE POINTS:", shape.length);
+
+      } catch (e) {
+
+        console.error("SHAPE JSON ERROR:", e);
+      }
+    }
   }
+
+  // =====================================================
+  // RETURN DATA
+  // =====================================================
 
   const data = {
     routeType: route.route_type,
@@ -184,46 +195,13 @@ async function loadGTFSforLine(line) {
     tripMap
   };
 
-  lineCache.set(line, { data, ts: Date.now() });
+  lineCache.set(line, {
+    data,
+    ts: Date.now()
+  });
+
   return data;
 }
-
-// =====================================================
-// 🗺 /api/line/:line
-// =====================================================
-app.get("/api/line/:line", async (req, res) => {
-  try {
-    const line = req.params.line.trim();
-    const data = await loadGTFSforLine(line);
-    if (!data) return res.status(404).json({ error: "Ingen linje" });
-
-    const stopsOut = [];
-    const seen = new Set();
-
-    for (const sts of data.stopTimesByTripId.values()) {
-      for (const s of sts) {
-        if (seen.has(s.stop_id)) continue;
-        seen.add(s.stop_id);
-        stopsOut.push({
-          lat: Number(s.stop_lat),
-          lon: Number(s.stop_lon),
-          name: s.stop_name
-        });
-      }
-    }
-
-    res.json({
-      shape: data.shape,
-      stops: stopsOut,
-      routeType: data.routeType
-    });
-
-  } catch (e) {
-    console.error("LINE ERROR:", e);
-    res.status(500).json({ error: "Kunde inte hämta linje" });
-  }
-});
-
 // =====================================================
 // 🚐 /api/vehicles/:line
 // =====================================================

@@ -140,67 +140,62 @@ async function loadGTFSforLine(line) {
   }
 
   // =====================================================
-  // SHAPE
-  // =====================================================
+// SHAPE
+// =====================================================
 
-  let shape = [];
+let shape = [];
 
-  const validTrip = trips.find(
-    t => t.shape_id && t.shape_id !== "0"
-  );
+for (const t of trips) {
 
-  if (!validTrip) {
-
-    console.log("NO VALID SHAPE FOR LINE:", line);
-
-  } else {
-
-    const shapeId = validTrip.shape_id;
-
-    console.log("USING SHAPE:", shapeId);
-
-    const [[shapeRow]] = await db.query(
-      "SELECT shape_json FROM shape_cache WHERE shape_id = ?",
-      [shapeId]
-    );
-
-    if (!shapeRow) {
-
-      console.log("NO SHAPE FOUND IN CACHE:", shapeId);
-
-    } else {
-
-      try {
-
-        shape = JSON.parse(shapeRow.shape_json);
-
-        console.log("✅ SHAPE POINTS:", shape.length);
-
-      } catch (e) {
-
-        console.error("SHAPE JSON ERROR:", e);
-      }
-    }
+  if (!t.shape_id || t.shape_id === "0") {
+    continue;
   }
 
-  // =====================================================
-  // RETURN DATA
-  // =====================================================
+  console.log("TESTING SHAPE:", t.shape_id);
 
-  const data = {
-    routeType: route.route_type,
-    trips,
-    stopTimesByTripId,
-    shape,
-    tripMap
-  };
+  const [[shapeRow]] = await db.query(
+    `
+    SELECT shape_json
+    FROM shape_cache
+    WHERE shape_id = ?
+    LIMIT 1
+    `,
+    [t.shape_id]
+  );
 
-  lineCache.set(line, {
-    data,
-    ts: Date.now()
-  });
+  if (!shapeRow?.shape_json) {
+    continue;
+  }
 
-  return data;
+  try {
+
+    shape = JSON.parse(shapeRow.shape_json);
+
+    console.log(
+      "✅ SHAPE FOUND:",
+      t.shape_id,
+      "POINTS:",
+      shape.length
+    );
+
+    break;
+
+  } catch (e) {
+
+    console.error(
+      "SHAPE JSON ERROR:",
+      t.shape_id,
+      e
+    );
+  }
+}
+
+if (!shape.length) {
+
+  console.log(
+    "❌ NO SHAPES FOUND FOR LINE:",
+    line
+  );
 }
 
 // =====================================================

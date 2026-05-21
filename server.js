@@ -140,24 +140,23 @@ async function loadGTFSforLine(line) {
   }
 
   // shape (snabb cache-version)
-const shapeId = trips[0].shape_id;
+  let shape = [];
 
-const [[shapeRow]] = await db.query(
-  "SELECT shape_json FROM shape_cache WHERE shape_id = ?",
-  [shapeId]
-);
-
-
-if (!shapeRow) {
-  console.log("NO SHAPE FOR:", shapeId);
-  return null;
-}
-
-
-const shape = shapeRow?.shape_json
-  ? JSON.parse(shapeRow.shape_json)
-  : [];
-
+  const shapeId = trips[0].shape_id;
+  
+  if (shapeId && shapeId !== "0") {
+  
+    const [[shapeRow]] = await db.query(
+      "SELECT shape_json FROM shape_cache WHERE shape_id = ?",
+      [shapeId]
+    );
+  
+    if (shapeRow?.shape_json) {
+      shape = JSON.parse(shapeRow.shape_json);
+    } else {
+      console.log("NO SHAPE FOR:", shapeId);
+    }
+  }
 
   const data = {
     routeType: route.route_type,

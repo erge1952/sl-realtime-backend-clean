@@ -73,13 +73,20 @@ const lineCache = new Map();
 const LINE_CACHE_TTL = 10 * 60 * 1000;
 
 // =====================================================
-// 🚍 Hämta GTFS-data för linje (utan tider)
+// 🚍 Hämta GTFS-data för linje
 // =====================================================
 async function loadGTFSforLine(line) {
-  const cached = lineCache.get(line);
-  if (cached && Date.now() - cached.ts < LINE_CACHE_TTL) return cached.data;
 
-  // route
+  const cached = lineCache.get(line);
+
+  if (cached && Date.now() - cached.ts < LINE_CACHE_TTL) {
+    return cached.data;
+  }
+
+  // =====================================================
+  // ROUTE
+  // =====================================================
+
   const [routesFound] = await db.query(
     `
     SELECT
@@ -93,31 +100,52 @@ async function loadGTFSforLine(line) {
     `,
     [line]
   );
-  
-  console.log("DEBUG ROUTES:", routesFound);
-  
-  const route = routesFound[0];
- 
- 
-  if (!route) return null;
 
-  // trips
+  console.log("DEBUG ROUTES:", routesFound);
+
+  const route = routesFound[0];
+
+  if (!route) {
+
+    console.log("❌ NO ROUTE:", line);
+
+    return null;
+  }
+
+  // =====================================================
+  // TRIPS
+  // =====================================================
+
   const [trips] = await db.query(
-    "SELECT trip_id, trip_headsign, direction_id, shape_id FROM trips WHERE route_id = ?",
+    `
+    SELECT
+      trip_id,
+      trip_headsign,
+      direction_id,
+      shape_id
+    FROM trips
+    WHERE route_id = ?
+    `,
     [route.route_id]
   );
+
+  if (!trips.length) {
+
+    console.log("❌ NO TRIPS:", route.route_id);
+
+    return null;
+  }
+
   const tripMap = new Map(
     trips.map(t => [t.trip_id, t])
   );
 
-  if (!trips.length) {
-    console.log("NO TRIPS FOR ROUTE:", route.route_id);
-    return null;
-  }
-
   const tripIds = trips.map(t => t.trip_id);
 
-  // stop_times + stops (ENDST minimal version)
+  // =====================================================
+  // STOPS
+  // =====================================================
+
   const [stopRows] = await db.query(
     `
     SELECT
@@ -128,7 +156,8 @@ async function loadGTFSforLine(line) {
       s.stop_lat,
       s.stop_lon
     FROM stop_times st
-    JOIN stops s ON s.stop_id = st.stop_id
+    JOIN stops s
+      ON s.stop_id = st.stop_id
     WHERE st.trip_id IN (?)
     ORDER BY st.trip_id, st.stop_sequence
     `,
@@ -136,91 +165,99 @@ async function loadGTFSforLine(line) {
   );
 
   const stopTimesByTripId = new Map();
+
   for (const r of stopRows) {
+
     if (!stopTimesByTripId.has(r.trip_id)) {
       stopTimesByTripId.set(r.trip_id, []);
     }
+
     stopTimesByTripId.get(r.trip_id).push(r);
   }
 
   // =====================================================
-// SHAPE
-// =====================================================
+  // SHAPE
+  // =====================================================
 
-let shape = [];
+  let shape = [];
 
-for (const t of trips) {
+  for (const t of trips) {
 
-  if (!t.shape_id || t.shape_id === "0") {
-    continue;
+    if (!t.shape_id || t.shape_id === "0") {
+      continue;
+    }
+
+    console.log("🔍 TESTING SHAPE:", t.shape_id);
+
+    const [rows] = await db.query(
+      `
+      SELECT shape_json
+      FROM shape_cache
+      WHERE shape_id = ?
+      LIMIT 1
+      `,
+      [t.shape_id]
+    );
+
+    if (!rows.length) {
+      continue;
+    }
+
+    const shapeRow = rows[0];
+
+    if (!shapeRow.shape_json) {
+      continue;
+    }
+
+    try {
+
+      shape = JSON.parse(shapeRow.shape_json);
+
+      console.log(
+        "✅ SHAPE FOUND:",
+        t.shape_id,
+        "POINTS:",
+        shape.length
+      );
+
+      break;
+
+    } catch (e) {
+
+      console.error(
+        "❌ SHAPE JSON ERROR:",
+        t.shape_id,
+        e
+      );
+    }
   }
 
-  console.log("TESTING SHAPE:", t.shape_id);
-
-  const [[shapeRow]] = await db.query(
-    `
-    SELECT shape_json
-    FROM shape_cache
-    WHERE shape_id = ?
-    LIMIT 1
-    `,
-    [t.shape_id]
-  );
-
-  if (!shapeRow?.shape_json) {
-    continue;
-  }
-
-  try {
-
-    shape = JSON.parse(shapeRow.shape_json);
+  if (!shape.length) {
 
     console.log(
-      "✅ SHAPE FOUND:",
-      t.shape_id,
-      "POINTS:",
-      shape.length
-    );
-
-    break;
-
-  } catch (e) {
-
-    console.error(
-      "SHAPE JSON ERROR:",
-      t.shape_id,
-      e
+      "⚠️ NO SHAPE FOUND FOR LINE:",
+      line
     );
   }
-}
 
-if (!shape.length) {
+  // =====================================================
+  // RETURN DATA
+  // =====================================================
 
-  console.log(
-    "❌ NO SHAPES FOUND FOR LINE:",
-    line
-  );
-}
+  const data = {
+    routeType: route.route_type,
+    trips,
+    stopTimesByTripId,
+    shape,
+    tripMap
+  };
 
+  lineCache.set(line, {
+    data,
+    ts: Date.now()
+  });
 
-// =====================================================
-// RETURN DATA
-// =====================================================
-
-const data = {
-  routeType: route.route_type,
-  trips,
-  stopTimesByTripId,
-  shape,
-  tripMap
-};
-
-lineCache.set(line, {
-  data,
-  ts: Date.now()
-});
-
-return data;
+  return data;
 }
 
 // =====================================================
@@ -233,9 +270,12 @@ app.get("/api/line/:line", async (req, res) => {
 
     const line = req.params.line.trim();
 
+    console.log("📍 LINE REQUEST:", line);
+
     const data = await loadGTFSforLine(line);
 
     if (!data) {
+
       return res.status(404).json({
         error: "Ingen linje"
       });
@@ -248,7 +288,9 @@ app.get("/api/line/:line", async (req, res) => {
 
       for (const s of sts) {
 
-        if (seen.has(s.stop_id)) continue;
+        if (seen.has(s.stop_id)) {
+          continue;
+        }
 
         seen.add(s.stop_id);
 
@@ -259,6 +301,15 @@ app.get("/api/line/:line", async (req, res) => {
         });
       }
     }
+
+    console.log(
+      "✅ API LINE:",
+      line,
+      "SHAPE:",
+      data.shape.length,
+      "STOPS:",
+      stopsOut.length
+    );
 
     res.json({
       shape: data.shape || [],
@@ -276,21 +327,22 @@ app.get("/api/line/:line", async (req, res) => {
   }
 });
 
-
 // =====================================================
 // 🚐 /api/vehicles/:line
 // =====================================================
+
 app.get("/api/vehicles/:line", async (req, res) => {
+
   try {
 
     const line = req.params.line.trim();
+
     const data = await loadGTFSforLine(line);
 
     if (!data) {
       return res.json([]);
     }
 
-    // destination per trip
     const lastStopNameByTripId = new Map();
 
     for (const [tripId, sts] of data.stopTimesByTripId) {
@@ -304,14 +356,14 @@ app.get("/api/vehicles/:line", async (req, res) => {
     }
 
     // =====================================================
-    // GTFS-RT CACHE
+    // GTFS RT CACHE
     // =====================================================
 
     const now = Date.now();
 
     if (!cachedFeed || now - cachedAt > CACHE_TTL) {
 
-      console.log("🔄 Hämtar GTFS-RT från Samtrafiken...");
+      console.log("🔄 FETCHING GTFS-RT...");
 
       const r = await fetch(GTFS_RT_URL, {
         headers: {
@@ -325,7 +377,7 @@ app.get("/api/vehicles/:line", async (req, res) => {
         const text = await r.text();
 
         console.error(
-          "❌ GTFS fetch failed:",
+          "❌ GTFS FETCH FAILED:",
           r.status,
           text
         );
@@ -335,44 +387,13 @@ app.get("/api/vehicles/:line", async (req, res) => {
 
       const buffer = await r.arrayBuffer();
 
-      console.log(
-        "📦 Buffer size:",
-        buffer.byteLength
-      );
-
-      // =====================================================
-      // SAVE PROTOBUF
-      // =====================================================
-
-      try {
-
-        const pbPath = "/tmp/latest.pb";
-
-        fs.writeFileSync(
-          pbPath,
-          Buffer.from(buffer)
-        );
-
-        console.log(
-          "💾 Saved protobuf:",
-          pbPath
-        );
-
-      } catch (e) {
-
-        console.error(
-          "PB SAVE ERROR:",
-          e
-        );
-      }
-
-      // =====================================================
-
       cachedFeed = FeedMessage.decode(
         new Uint8Array(buffer)
       );
 
       cachedAt = now;
+
+      console.log("✅ GTFS-RT UPDATED");
     }
 
     // =====================================================
@@ -389,13 +410,15 @@ app.get("/api/vehicles/:line", async (req, res) => {
 
       const vehicle = entity.vehicle;
 
-      if (!vehicle?.position) continue;
-
-      console.log("REALTIME TRIP:", vehicle.trip);
+      if (!vehicle?.position) {
+        continue;
+      }
 
       const tripId = vehicle.trip?.tripId;
 
-      if (!tripIdSet.has(tripId)) continue;
+      if (!tripIdSet.has(tripId)) {
+        continue;
+      }
 
       const trip = data.tripMap.get(tripId);
 
@@ -404,7 +427,7 @@ app.get("/api/vehicles/:line", async (req, res) => {
         lat: vehicle.position.latitude,
         lon: vehicle.position.longitude,
         bearing: vehicle.position.bearing ?? 0,
-        directionId: vehicle.trip.directionId ?? null,
+        directionId: vehicle.trip?.directionId ?? null,
         routeType: data.routeType,
         destination:
           trip?.trip_headsign ||
@@ -412,6 +435,12 @@ app.get("/api/vehicles/:line", async (req, res) => {
           "Okänd destination"
       });
     }
+
+    console.log(
+      "✅ VEHICLES:",
+      line,
+      vehicles.length
+    );
 
     res.json(vehicles);
 
@@ -423,99 +452,4 @@ app.get("/api/vehicles/:line", async (req, res) => {
       error: "Kunde inte hämta fordon"
     });
   }
-});
-
-// =====================================================
-// 🔎 Test
-// =====================================================
-app.get("/api/test", (_, res) =>
-  res.json({ ok: true, msg: "Backend fungerar  🎉" })
-);
-
-// =====================================================
-// FORCE DOWNLOAD REALTIME PB
-// =====================================================
-
-app.get("/api/debug/fetchpb", async (_, res) => {
-
-  try {
-
-    console.log("🔄 Hämtar protobuf direkt...");
-
-    const r = await fetch(GTFS_RT_URL, {
-      headers: {
-        Accept: "application/x-protobuf",
-        "Accept-Encoding": "gzip"
-      }
-    });
-
-    if (!r.ok) {
-
-      const text = await r.text();
-
-      console.error("GTFS FETCH ERROR:", text);
-
-      return res.status(500).send(text);
-    }
-
-    const buffer = await r.arrayBuffer();
-
-    const pbPath = "/tmp/latest.pb";
-
-    fs.writeFileSync(
-      pbPath,
-      Buffer.from(buffer)
-    );
-
-    console.log("💾 Protobuf sparad:", pbPath);
-
-    res.download(pbPath);
-
-  } catch (e) {
-
-    console.error("FETCH PB ERROR:", e);
-
-    res.status(500).send(e.message);
-  }
-});
-
-app.get("/api/debug/pb", (_, res) => {
-  try {
-
-    const tmpDir = "/tmp";
-
-    if (!fs.existsSync(tmpDir)) {
-      return res.status(404).send("tmp finns inte");
-    }
-
-    const files = fs.readdirSync(tmpDir)
-      .filter(f => f.endsWith(".pb"))
-      .sort()
-      .reverse();
-
-    console.log("PB FILES:", files);
-
-    if (!files.length) {
-      return res.status(404).send("Ingen protobuf-fil hittades");
-    }
-
-    const latest = `${tmpDir}/${files[0]}`;
-
-    console.log("📦 Sending protobuf:", latest);
-
-    res.download(latest);
-
-  } catch (e) {
-
-    console.error("PB DOWNLOAD ERROR:", e);
-
-    res.status(500).send(e.message);
-  }
-});
-
-app.listen(PORT, () => {
-  console.log(`🚍 Backend kör på port ${PORT}`);
-
-  // Värm upp MySQL-connection
-  db.query("SELECT 1").catch(console.error);
 });

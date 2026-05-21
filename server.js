@@ -106,7 +106,10 @@ async function loadGTFSforLine(line) {
     trips.map(t => [t.trip_id, t])
   );
 
-  if (!trips.length) return null;
+  if (!trips.length) {
+    console.log("NO TRIPS FOR ROUTE:", route.route_id);
+    return null;
+  }
 
   const tripIds = trips.map(t => t.trip_id);
 
@@ -144,7 +147,12 @@ const [[shapeRow]] = await db.query(
   [shapeId]
 );
 
-if (!shapeRow) return null;
+
+if (!shapeRow) {
+  console.log("NO SHAPE FOR:", shapeId);
+  return null;
+}
+
 
 const shape = shapeRow?.shape_json
   ? JSON.parse(shapeRow.shape_json)

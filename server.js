@@ -228,9 +228,15 @@ const data = {
   tripMap
 };
 
+const uniqueShapes = [
+  ...new Set(
+    trips.map(t => String(t.shape_id))
+  )
+];
+
 console.log(
-  "🧪 SAMPLE SHAPES:",
-  trips.slice(0, 20).map(t => t.shape_id)
+  "🧪 UNIQUE SHAPES:",
+  uniqueShapes.slice(0, 100)
 );
 
 lineCache.set(line, {

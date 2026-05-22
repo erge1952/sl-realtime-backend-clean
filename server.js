@@ -124,15 +124,61 @@ async function loadGTFSforLine(line) {
     stopTimesByTripId.get(r.trip_id).push(r);
   }
 
-  // shape (snabb cache-version)
-const shapeId = trips[0].shape_id;
+ // =====================================================
+// SHAPE
+// =====================================================
 
-const [[shapeRow]] = await db.query(
-  "SELECT shape_json FROM shape_cache WHERE shape_id = ?",
-  [shapeId]
-);
+let shape = [];
 
-if (!shapeRow) return null;
+for (const t of trips) {
+
+  if (!t.shape_id) continue;
+
+  const [rows] = await db.query(
+    `
+    SELECT shape_json
+    FROM shape_cache
+    WHERE shape_id = ?
+    LIMIT 1
+    `,
+    [t.shape_id]
+  );
+
+  if (!rows.length) {
+    continue;
+  }
+
+  try {
+
+    shape = JSON.parse(
+      rows[0].shape_json
+    );
+
+    console.log(
+      "✅ SHAPE FOUND:",
+      t.shape_id,
+      "POINTS:",
+      shape.length
+    );
+
+    break;
+
+  } catch (e) {
+
+    console.error(
+      "SHAPE JSON ERROR:",
+      e
+    );
+  }
+}
+
+if (!shape.length) {
+
+  console.log(
+    "⚠️ NO SHAPE FOUND:",
+    line
+  );
+}
 
 const shape = shapeRow?.shape_json
   ? JSON.parse(shapeRow.shape_json)
@@ -176,7 +222,7 @@ app.get("/api/line/:line", async (req, res) => {
     }
 
     res.json({
-      shape: data.shape,
+      shape: data.shape || [],
       stops: stopsOut,
       routeType: data.routeType
     });

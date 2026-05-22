@@ -79,11 +79,34 @@ async function loadGTFSforLine(line) {
   if (cached && Date.now() - cached.ts < LINE_CACHE_TTL) return cached.data;
 
   // route
-  const [[route]] = await db.query(
+ /* const [[route]] = await db.query(
     "SELECT route_id, route_type FROM routes WHERE route_short_name = ?",
     [line]
   );
   if (!route) return null;
+*/
+const [routes] = await db.query(
+  `
+  SELECT
+    route_id,
+    route_short_name,
+    route_type
+  FROM routes
+  WHERE route_short_name = ?
+  `,
+  [line]
+);
+
+console.log("DEBUG ROUTES:", line, routes);
+
+const route = routes[0];
+
+if (!route) {
+
+  console.log("❌ NO ROUTE FOUND:", line);
+
+  return null;
+}
 
   // trips
   const [trips] = await db.query(

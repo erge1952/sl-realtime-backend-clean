@@ -155,7 +155,13 @@ let shape = [];
 
 for (const t of trips) {
 
-  if (!t.shape_id) {
+  if (
+    !t.shape_id ||
+    t.shape_id === "0" ||
+    t.shape_id === "1" ||
+    t.shape_id === 0 ||
+    t.shape_id === 1
+  ) {
     continue;
   }
 
@@ -221,6 +227,11 @@ const data = {
   shape,
   tripMap
 };
+
+console.log(
+  "🧪 SAMPLE SHAPES:",
+  trips.slice(0, 20).map(t => t.shape_id)
+);
 
 lineCache.set(line, {
   data,

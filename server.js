@@ -214,6 +214,99 @@ console.log(
   shape.length
 );
 
+const data = {
+  routeType: route.route_type,
+  trips,
+  stopTimesByTripId,
+  shape,
+  tripMap
+};
+
+lineCache.set(line, {
+  data,
+  ts: Date.now()
+});
+
+return data;
+}
+
+// =====================================================
+// 🗺 /api/line/:line
+// =====================================================
+
+app.get("/api/line/:line", async (req, res) => {
+
+  try {
+
+    const line = req.params.line.trim();
+
+    console.log(
+      "📍 LINE REQUEST:",
+      line
+    );
+
+    const data =
+      await loadGTFSforLine(line);
+
+    if (!data) {
+
+      return res.status(404).json({
+        error: "Ingen linje"
+      });
+    }
+
+    const stopsOut = [];
+    const seen = new Set();
+
+    for (
+      const sts of
+      data.stopTimesByTripId.values()
+    ) {
+
+      for (const s of sts) {
+
+        if (seen.has(s.stop_id)) {
+          continue;
+        }
+
+        seen.add(s.stop_id);
+
+        stopsOut.push({
+          lat: Number(s.stop_lat),
+          lon: Number(s.stop_lon),
+          name: s.stop_name
+        });
+      }
+    }
+
+    console.log(
+      "✅ API LINE:",
+      line,
+      "SHAPE:",
+      data.shape.length,
+      "STOPS:",
+      stopsOut.length
+    );
+
+    res.json({
+      shape: data.shape || [],
+      stops: stopsOut,
+      routeType: data.routeType
+    });
+
+  } catch (e) {
+
+    console.error(
+      "LINE ERROR:",
+      e
+    );
+
+    res.status(500).json({
+      error:
+        "Kunde inte hämta linje"
+    });
+  }
+});
 
 // =====================================================
 // 🚐 /api/vehicles/:line

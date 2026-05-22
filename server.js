@@ -103,7 +103,7 @@ async function loadGTFSforLine(line) {
       route_long_name,
       route_type
     FROM routes
-    WHERE route_short_name = ?
+    WHERE TRIM(route_short_name) = TRIM(?)
     LIMIT 1
     `,
     [line]
@@ -167,10 +167,10 @@ async function loadGTFSforLine(line) {
     FROM stop_times st
     JOIN stops s
       ON s.stop_id = st.stop_id
-    WHERE st.trip_id IN (?)
+    WHERE st.trip_id IN (${tripIds.map(() => "?").join(",")})
     ORDER BY st.trip_id, st.stop_sequence
     `,
-    [tripIds]
+    tripIds
   );
 
   const stopTimesByTripId =
@@ -192,77 +192,67 @@ async function loadGTFSforLine(line) {
   }
 
   // =====================================================
-  // SHAPE
-  // =====================================================
+// SHAPE
+// =====================================================
 
-  let shape = [];
+let shape = [];
 
-  for (const t of trips) {
+for (const t of trips) {
 
-    if (
-      !t.shape_id ||
-      t.shape_id === "0"
-    ) {
-      continue;
-    }
+  if (!t.shape_id) {
+    continue;
+  }
 
-    console.log(
-      "🔍 TESTING SHAPE:",
-      t.shape_id
-    );
+  const shapeId = String(t.shape_id).trim();
 
-    const [rows] = await db.query(
-      `
-      SELECT shape_json
-      FROM shape_cache
-      WHERE shape_id = ?
-      LIMIT 1
-      `,
-      [t.shape_id]
-    );
+  console.log("🔍 TESTING SHAPE:", shapeId);
 
-    if (!rows.length) {
-      continue;
-    }
+  const [rows] = await db.query(
+    `
+    SELECT shape_json
+    FROM shape_cache
+    WHERE TRIM(shape_id) = ?
+    LIMIT 1
+    `,
+    [shapeId]
+  );
 
-    const shapeRow = rows[0];
+  if (!rows.length) {
+    continue;
+  }
 
-    if (!shapeRow.shape_json) {
-      continue;
-    }
+  try {
 
-    try {
+    const parsed = JSON.parse(rows[0].shape_json);
 
-      shape =
-        JSON.parse(shapeRow.shape_json);
+    if (Array.isArray(parsed) && parsed.length > 2) {
+
+      shape = parsed;
 
       console.log(
         "✅ SHAPE FOUND:",
-        t.shape_id,
+        shapeId,
         "POINTS:",
         shape.length
       );
 
       break;
-
-    } catch (e) {
-
-      console.error(
-        "❌ SHAPE JSON ERROR:",
-        t.shape_id,
-        e
-      );
     }
-  }
 
-  if (!shape.length) {
+  } catch (e) {
 
-    console.log(
-      "⚠️ NO SHAPE FOUND FOR LINE:",
-      line
+    console.error(
+      "❌ SHAPE JSON ERROR:",
+      shapeId,
+      e
     );
   }
+}
 
+console.log(
+  "🗺 FINAL SHAPE LENGTH:",
+  shape.length
+);
   // =====================================================
   // RETURN DATA
   // =====================================================
@@ -343,7 +333,9 @@ app.get("/api/line/:line", async (req, res) => {
     );
 
     res.json({
-      shape: data.shape || [],
+      shape: Array.isArray(data.shape)
+      ? data.shape
+      : [],
       stops: stopsOut,
       routeType: data.routeType
     });

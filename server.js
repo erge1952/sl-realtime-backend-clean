@@ -155,7 +155,14 @@ let shape = [];
 
 for (const t of trips) {
 
-  if (!t.shape_id) continue;
+  if (!t.shape_id) {
+    continue;
+  }
+
+  console.log(
+    "🔍 TESTING SHAPE:",
+    t.shape_id
+  );
 
   const [rows] = await db.query(
     `
@@ -164,10 +171,16 @@ for (const t of trips) {
     WHERE shape_id = ?
     LIMIT 1
     `,
-    [t.shape_id]
+    [String(t.shape_id)]
   );
 
   if (!rows.length) {
+
+    console.log(
+      "❌ SHAPE NOT FOUND:",
+      t.shape_id
+    );
+
     continue;
   }
 
@@ -189,35 +202,18 @@ for (const t of trips) {
   } catch (e) {
 
     console.error(
-      "SHAPE JSON ERROR:",
+      "❌ SHAPE JSON ERROR:",
+      t.shape_id,
       e
     );
   }
 }
 
-if (!shape.length) {
+console.log(
+  "🗺 FINAL SHAPE POINTS:",
+  shape.length
+);
 
-  console.log(
-    "⚠️ NO SHAPE FOUND:",
-    line
-  );
-}
-
-const data = {
-  routeType: route.route_type,
-  trips,
-  stopTimesByTripId,
-  shape,
-  tripMap
-};
-
-lineCache.set(line, {
-  data,
-  ts: Date.now()
-});
-
-return data;
-}
 
 // =====================================================
 // 🚐 /api/vehicles/:line

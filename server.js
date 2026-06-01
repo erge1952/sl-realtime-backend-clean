@@ -151,24 +151,38 @@ if (!route) {
 // SHAPE
 // =====================================================
 
-let shape = [];
+const shapeCounts = new Map();
 
 for (const t of trips) {
 
+  const id = String(t.shape_id);
+
   if (
-    !t.shape_id ||
-    t.shape_id === "0" ||
-    t.shape_id === "1" ||
-    t.shape_id === 0 ||
-    t.shape_id === 1
+    !id ||
+    id === "0" ||
+    id === "1"
   ) {
     continue;
   }
 
-  console.log(
-    "🔍 TESTING SHAPE:",
-    t.shape_id
+  shapeCounts.set(
+    id,
+    (shapeCounts.get(id) || 0) + 1
   );
+}
+
+const bestShapeId =
+  [...shapeCounts.entries()]
+    .sort((a, b) => b[1] - a[1])[0]?.[0];
+
+console.log(
+  "🏆 BEST SHAPE:",
+  bestShapeId
+);
+
+let shape = [];
+
+if (bestShapeId) {
 
   const [rows] = await db.query(
     `
@@ -177,49 +191,48 @@ for (const t of trips) {
     WHERE shape_id = ?
     LIMIT 1
     `,
-    [String(t.shape_id)]
+    [bestShapeId]
   );
 
-  if (!rows.length) {
+  if (rows.length) {
 
-    console.log(
-      "❌ SHAPE NOT FOUND:",
-      t.shape_id
-    );
+    try {
 
-    continue;
-  }
+      shape = JSON.parse(
+        rows[0].shape_json
+      );
 
-  try {
-
-    shape = JSON.parse(
-      rows[0].shape_json
-    );
-
-    console.log(
-      "🏁 USING SHAPE:",
-      t.shape_id,
-      "TRIP:",
-      t.trip_id,
-      "HEADSIGN:",
-      t.trip_headsign,
-      "DIR:",
-      t.direction_id
-    );
+      console.log(
+        "FIRST POINT:",
+        shape[0]
+      );
+      
+      console.log(
+        "LAST POINT:",
+        shape[shape.length - 1]
+      );
+      
+      console.log(
+        "POINT COUNT:",
+        shape.length
+      );
 
 
+      console.log(
+        "✅ USING SHAPE:",
+        bestShapeId,
+        "POINTS:",
+        shape.length
+      );
 
+    } catch (e) {
 
-
-    break;
-
-  } catch (e) {
-
-    console.error(
-      "❌ SHAPE JSON ERROR:",
-      t.shape_id,
-      e
-    );
+      console.error(
+        "❌ SHAPE JSON ERROR:",
+        bestShapeId,
+        e
+      );
+    }
   }
 }
 
@@ -227,6 +240,8 @@ console.log(
   "🗺 FINAL SHAPE POINTS:",
   shape.length
 );
+
+
 
 const data = {
   routeType: route.route_type,

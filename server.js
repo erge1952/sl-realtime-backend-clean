@@ -18,7 +18,6 @@ async function initDB() {
 
 const db = await initDB();
 
-const tripVehicleIndex = new Map();
 const app = express();
 
 app.use(cors({
@@ -97,7 +96,6 @@ const [routes] = await db.query(
   [line]
 );
 
-console.log("DEBUG ROUTES:", line, routes);
 
 const route = routes[0];
 
@@ -175,10 +173,6 @@ const bestShapeId =
   [...shapeCounts.entries()]
     .sort((a, b) => b[1] - a[1])[0]?.[0];
 
-console.log(
-  "🏆 BEST SHAPE:",
-  bestShapeId
-);
 
 let shape = [];
 
@@ -202,28 +196,8 @@ if (bestShapeId) {
         rows[0].shape_json
       );
 
-      console.log(
-        "FIRST POINT:",
-        shape[0]
-      );
       
-      console.log(
-        "LAST POINT:",
-        shape[shape.length - 1]
-      );
-      
-      console.log(
-        "POINT COUNT:",
-        shape.length
-      );
-
-
-      console.log(
-        "✅ USING SHAPE:",
-        bestShapeId,
-        "POINTS:",
-        shape.length
-      );
+     
 
     } catch (e) {
 
@@ -236,11 +210,6 @@ if (bestShapeId) {
   }
 }
 
-console.log(
-  "🗺 FINAL SHAPE POINTS:",
-  shape.length
-);
-
 
 
 const data = {
@@ -251,16 +220,7 @@ const data = {
   tripMap
 };
 
-const uniqueShapes = [
-  ...new Set(
-    trips.map(t => String(t.shape_id))
-  )
-];
 
-console.log(
-  "🧪 UNIQUE SHAPES:",
-  uniqueShapes.slice(0, 100)
-);
 
 lineCache.set(line, {
   data,

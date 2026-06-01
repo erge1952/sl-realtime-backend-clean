@@ -197,11 +197,19 @@ for (const t of trips) {
     );
 
     console.log(
-      "✅ SHAPE FOUND:",
+      "🏁 USING SHAPE:",
       t.shape_id,
-      "POINTS:",
-      shape.length
+      "TRIP:",
+      t.trip_id,
+      "HEADSIGN:",
+      t.trip_headsign,
+      "DIR:",
+      t.direction_id
     );
+
+
+
+
 
     break;
 

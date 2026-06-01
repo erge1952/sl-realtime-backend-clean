@@ -192,18 +192,27 @@ for (const t of trips) {
 
   try {
 
-    shape = JSON.parse(
+    const candidate = JSON.parse(
       rows[0].shape_json
     );
-
+    
     console.log(
-      "✅ SHAPE FOUND:",
+      "SHAPE:",
       t.shape_id,
       "POINTS:",
-      shape.length
+      candidate.length
     );
-
-    break;
+    
+    if (candidate.length > shape.length) {
+    
+      console.log(
+        "🏆 NEW BEST SHAPE:",
+        t.shape_id,
+        candidate.length
+      );
+    
+      shape = candidate;
+    }
 
   } catch (e) {
 

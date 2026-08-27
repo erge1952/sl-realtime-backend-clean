@@ -298,139 +298,104 @@ async function loadGTFSforLine(line) {
   );
 
 
-  // ===================================================
-  // 🗺 SHAPE
-  // ===================================================
-  //
-  // Vi använder den shape_id som förekommer flest gånger
-  // bland tripparna. Detta var den variant som fungerade
-  // bäst tidigare.
-  //
+  // =====================================================
+// SHAPES
+// =====================================================
 
-  const shapeCounts =
-    new Map();
+const shapeCounts = new Map();
 
+for (const t of trips) {
 
-  for (const t of trips) {
+  const id = String(t.shape_id || "").trim();
 
-    const id =
-      String(t.shape_id ?? "");
-
-
-    if (
-      !id ||
-      id === "0" ||
-      id === "1"
-    ) {
-      continue;
-    }
-
-
-    shapeCounts.set(
-      id,
-      (shapeCounts.get(id) || 0) + 1
-    );
+  if (!id || id === "0" || id === "1") {
+    continue;
   }
 
+  shapeCounts.set(
+    id,
+    (shapeCounts.get(id) || 0) + 1
+  );
+}
 
-  const bestShapeId =
-    [...shapeCounts.entries()]
-      .sort(
-        (a, b) =>
-          b[1] - a[1]
-      )[0]?.[0];
+// Alla shapes som används av linjen
+const shapeIds = [...shapeCounts.keys()];
 
+console.log(
+  "🗺 SHAPES FOR LINE:",
+  line,
+  shapeIds
+);
 
-  let shape = [];
+const shapes = [];
 
+for (const shapeId of shapeIds) {
 
-  if (bestShapeId) {
+  const [rows] = await db.query(
+    `
+    SELECT shape_json
+    FROM shape_cache
+    WHERE shape_id = ?
+    LIMIT 1
+    `,
+    [shapeId]
+  );
+
+  if (!rows.length) {
 
     console.log(
-      "🗺 USING SHAPE:",
-      normalizedLine,
-      bestShapeId
+      "⚠️ SHAPE SAKNAS I CACHE:",
+      shapeId
     );
 
+    continue;
+  }
 
-    const [rows] =
-      await db.query(
-        `
-        SELECT shape_json
-        FROM shape_cache
-        WHERE shape_id = ?
-        LIMIT 1
-        `,
-        [bestShapeId]
-      );
+  try {
 
+    const parsed = JSON.parse(
+      rows[0].shape_json
+    );
 
-    if (rows.length) {
+    if (Array.isArray(parsed) && parsed.length > 0) {
 
-      try {
-
-        shape =
-          JSON.parse(
-            rows[0].shape_json
-          );
-
-
-        console.log(
-          "✅ SHAPE POINTS:",
-          normalizedLine,
-          shape.length
-        );
-
-
-      } catch (e) {
-
-        console.error(
-          "❌ SHAPE JSON ERROR:",
-          bestShapeId,
-          e
-        );
-      }
-
-    } else {
+      shapes.push(parsed);
 
       console.log(
-        "⚠️ NO SHAPE IN CACHE:",
-        bestShapeId
+        "✅ SHAPE:",
+        shapeId,
+        "POINTS:",
+        parsed.length
       );
+
     }
 
-  } else {
+  } catch (e) {
 
-    console.log(
-      "⚠️ NO VALID SHAPE:",
-      normalizedLine
+    console.error(
+      "❌ SHAPE JSON ERROR:",
+      shapeId,
+      e
     );
   }
+}
 
+// Behåll gamla "shape" för kompatibilitet
+// med eventuell äldre frontend.
+const shape = shapes[0] || [];
 
   // ===================================================
   // RETURN DATA
   // ===================================================
 
-  const data = {
-
-    routeId:
-      String(route.route_id),
-
-    routeShortName:
-      String(route.route_short_name),
-
-    routeType:
-      route.route_type,
-
-    trips,
-
-    stopTimesByTripId,
-
-    shape,
-
-    tripMap
-  };
+ const data = {
+  routeType: route.route_type,
+  trips,
+  stopTimesByTripId,
+  shape,
+  shapes,
+  tripMap
+};
 
 
   lineCache.set(
@@ -734,16 +699,11 @@ app.get(
 
 
       res.json({
-
-        shape:
-          data.shape || [],
-
-        stops:
-          stopsOut,
-
-        routeType:
-          data.routeType
-      });
+  shape: data.shape || [],
+  shapes: data.shapes || [],
+  stops: stopsOut,
+  routeType: data.routeType
+});
 
 
     } catch (e) {

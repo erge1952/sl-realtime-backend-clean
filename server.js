@@ -298,48 +298,102 @@ async function loadGTFSforLine(line) {
   );
 
 
-  // =====================================================
+// =====================================================
 // SHAPES
 // =====================================================
 
+// Räkna antal trips per direction + shape
 const shapeCounts = new Map();
 
 for (const t of trips) {
 
-  const id = String(t.shape_id || "").trim();
+  const shapeId =
+    String(t.shape_id || "").trim();
 
-  if (!id || id === "0" || id === "1") {
+  const direction =
+    String(t.direction_id ?? "").trim();
+
+  if (
+    !shapeId ||
+    shapeId === "0" ||
+    shapeId === "1"
+  ) {
     continue;
   }
 
+  const key =
+    `${direction}|${shapeId}`;
+
   shapeCounts.set(
-    id,
-    (shapeCounts.get(id) || 0) + 1
+    key,
+    (shapeCounts.get(key) || 0) + 1
   );
 }
 
-// Alla shapes som används av linjen
-const shapeIds = [...shapeCounts.keys()];
+
+// =====================================================
+// VÄLJ HUVUD-SHAPE FÖR VARJE RIKTNING
+// =====================================================
+
+const bestShapesByDirection = new Map();
+
+for (const [key, count] of shapeCounts) {
+
+  const [direction, shapeId] =
+    key.split("|");
+
+  const current =
+    bestShapesByDirection.get(direction);
+
+  if (
+    !current ||
+    count > current.count
+  ) {
+
+    bestShapesByDirection.set(
+      direction,
+      {
+        shapeId,
+        count
+      }
+    );
+  }
+}
+
 
 console.log(
-  "🗺 SHAPES FOR LINE:",
+  "🗺 MAIN SHAPES FOR LINE:",
   line,
-  shapeIds
+  [...bestShapesByDirection.entries()]
 );
+
+
+// =====================================================
+// HÄMTA SHAPES
+// =====================================================
 
 const shapes = [];
 
-for (const shapeId of shapeIds) {
+for (
+  const [direction, info]
+  of bestShapesByDirection
+) {
 
-  const [rows] = await db.query(
-    `
-    SELECT shape_json
-    FROM shape_cache
-    WHERE shape_id = ?
-    LIMIT 1
-    `,
-    [shapeId]
-  );
+  const shapeId =
+    info.shapeId;
+
+
+  const [rows] =
+    await db.query(
+      `
+      SELECT shape_json
+      FROM shape_cache
+      WHERE shape_id = ?
+      LIMIT 1
+      `,
+      [shapeId]
+    );
+
 
   if (!rows.length) {
 
@@ -351,24 +405,36 @@ for (const shapeId of shapeIds) {
     continue;
   }
 
+
   try {
 
-    const parsed = JSON.parse(
-      rows[0].shape_json
-    );
+    const parsed =
+      JSON.parse(
+        rows[0].shape_json
+      );
 
-    if (Array.isArray(parsed) && parsed.length > 0) {
+
+    if (
+      Array.isArray(parsed) &&
+      parsed.length > 0
+    ) {
 
       shapes.push(parsed);
 
+
       console.log(
-        "✅ SHAPE:",
+        "✅ MAIN SHAPE:",
+        "direction:",
+        direction,
+        "shape:",
         shapeId,
-        "POINTS:",
+        "trips:",
+        info.count,
+        "points:",
         parsed.length
       );
-
     }
+
 
   } catch (e) {
 
@@ -380,9 +446,10 @@ for (const shapeId of shapeIds) {
   }
 }
 
+
 // Behåll gamla "shape" för kompatibilitet
-// med eventuell äldre frontend.
-const shape = shapes[0] || [];
+const shape =
+  shapes[0] || [];
 
   // ===================================================
   // RETURN DATA

@@ -905,6 +905,8 @@ app.get(
       let routeIdMatched = 0;
 
       let unmatchedForLine = 0;
+	  
+	  let matchedDebugCount = 0;
 
 
       // =================================================
@@ -969,18 +971,7 @@ app.get(
           null;
 
 
-        if (
-          rtTripId &&
-          tripIdSet.has(rtTripId)
-        ) {
-
-          matchedTrip =
-            data.tripMap.get(
-              rtTripId
-            );
-
-          tripIdMatched++;
-        }
+        if (rtTripId && tripIdSet.has(rtTripId)) { matchedTrip = data.tripMap.get( rtTripId ); tripIdMatched++; if (matchedDebugCount < 10) { console.log( "✅ MATCHED TRIP:", { line, rtTripId, rtRouteId, rtDirectionId, vehicleId: vehicle.vehicle?.id, staticTrip: matchedTrip } ); matchedDebugCount++; } }
 
 
         // =================================================

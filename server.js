@@ -906,6 +906,8 @@ app.get(
 
       let unmatchedForLine = 0;
 	  
+	  let unmatchedDebugCount = 0;
+	  
 	  let matchedDebugCount = 0;
 
 
@@ -1008,15 +1010,47 @@ app.get(
         // hoppa över fordonet.
         // =================================================
 
-        if (
-          !matchedTrip &&
-          !routeMatched
-        ) {
+        ```js
+if (
+  !matchedTrip &&
+  !routeMatched
+) {
 
-          unmatchedForLine++;
+  unmatchedForLine++;
 
-          continue;
-        }
+  if (unmatchedDebugCount < 20) {
+
+    console.log(
+      "❌ UNMATCHED RT VEHICLE:",
+      {
+        entityId: entity.id,
+
+        vehicleId:
+          vehicle.vehicle?.id,
+
+        tripId:
+          vehicle.trip?.tripId,
+
+        routeId:
+          vehicle.trip?.routeId,
+
+        directionId:
+          vehicle.trip?.directionId,
+
+        latitude:
+          vehicle.position.latitude,
+
+        longitude:
+          vehicle.position.longitude
+      }
+    );
+
+    unmatchedDebugCount++;
+  }
+
+  continue;
+}
+```
 
 
         // =================================================
